@@ -367,6 +367,9 @@
       }
 
       const DENSITY_CHARSET = ' .:-=+*#%@';
+      // Tuning constants
+      const DISSIPATION = 0.994; // faster fade to avoid snowballing
+      const AUTO_MOTION_DEPOSIT_SCALE = 0.15; // less density injected during preview
 
       // Common input state
       const input = {
@@ -458,7 +461,7 @@
           for (let y = 1; y <= M; y++) {
             for (let x = 1; x <= N; x++) {
               const k = fluid.IX(x, y);
-              fluid.d[k] *= 0.999;
+              fluid.d[k] *= DISSIPATION;
             }
           }
         },
@@ -571,7 +574,7 @@
         e.preventDefault();
       });
 
-      function injectFromPointer() {
+      function injectFromPointer(depositScale = 1) {
         if (!input.down) return;
         const gx = Math.floor((input.x / window.innerWidth) * fluid.nx) + 1;
         const gy = Math.floor((input.y / window.innerHeight) * fluid.ny) + 1;
@@ -582,7 +585,8 @@
         for (let ry = -1; ry <= 1; ry++) {
           for (let rx = -1; rx <= 1; rx++) {
             const x = gx + rx, y = gy + ry;
-            fluid.addDensity(x, y, input.strength * (rx === 0 && ry === 0 ? 0.5 : 0.2));
+            const base = (rx === 0 && ry === 0 ? 0.5 : 0.2);
+            fluid.addDensity(x, y, input.strength * base * depositScale);
             fluid.addVelocity(x, y, vx, vy);
           }
         }
@@ -605,8 +609,9 @@
         if (!rect.width || !rect.height) return;
         const centerX = rect.left + rect.width * 0.55;
         const centerY = rect.top + rect.height * 0.45;
-        const radius = Math.min(rect.width, rect.height) * 0.22;
-        const steps = 28;
+        // Softer preview: smaller radius and more steps (smaller deltas)
+        const radius = Math.min(rect.width, rect.height) * 0.16;
+        const steps = 40;
         autoMotion = [];
         autoMotionStart = null;
         input.down = false;
@@ -619,6 +624,8 @@
         }
       }
 
+      const AUTO_MOTION_STRENGTH = 7; // halved again for extra softness
+
       function frame(t) {
         const dt = Math.min(0.05, (t - last) / 1000);
         last = t;
@@ -627,7 +634,8 @@
             if (!autoMotionStart) autoMotionStart = t;
             const elapsed = t - autoMotionStart;
             const len = autoMotion.length;
-            const idx = Math.floor((elapsed / 32) % len);
+            // Slightly slower orbit for a calmer preview
+            const idx = Math.floor((elapsed / 40) % len);
             const segment = autoMotion[idx];
             const prev = autoMotion[(idx - 1 + len) % len];
             input.down = true;
@@ -635,7 +643,10 @@
             input.py = prev.y;
             input.x = segment.x;
             input.y = segment.y;
-            injectFromPointer();
+            const prevStrength = input.strength;
+            input.strength = AUTO_MOTION_STRENGTH;
+            injectFromPointer(AUTO_MOTION_DEPOSIT_SCALE);
+            input.strength = prevStrength;
             if (elapsed >= len * 32) {
               autoMotion = [];
               input.down = false;
