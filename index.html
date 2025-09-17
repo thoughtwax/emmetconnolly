@@ -1,43 +1,644 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ASCII Fluid Gallery</title>
+    <style>
+      /* Reset and fullscreen */
+      html, body {
+        height: 100%;
+        margin: 0;
+        padding: 0;
+        overflow: hidden; /* ensure no scrollbars */
+        background: black;
+      }
 
-  <meta charset="utf-8">
-  <title>Emmet Connolly - Digital Product Designer</title>
-  <meta name="description" content="The personal website of Emmet Connolly, digital product designer">
-  <meta name="author" content="Emmet Connolly">
+      /* Container for ASCII */
+      #app {
+        position: fixed;
+        inset: 0;
+        width: 100vw;
+        height: 100vh;
+        display: grid;
+        place-items: center;
+        background: #000;
+        color: #0f0;
+        user-select: none;
+        -webkit-user-select: none;
+        -moz-user-select: none;
+        -ms-user-select: none;
+        cursor: crosshair;
+      }
 
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+      pre.ascii {
+        margin: 0;
+        position: absolute;
+        top: 0; left: 0; right: 0; bottom: 0;
+        width: 100vw;
+        height: 100vh;
+        font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        font-size: 12px; /* will be adjusted dynamically */
+        line-height: 1.0; /* tighter for better aspect control */
+        letter-spacing: 0px;
+        white-space: pre;
+        color: #d0f8d0;
+      }
 
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-
-  <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=JetBrains+Mono:wght@100..800&display=swap" rel="stylesheet">
-
-  <link rel="stylesheet" href="css/normalize.css">
-  <link rel="stylesheet" href="css/skeleton.css">
-  <link rel="stylesheet" href="css/main.css">
-
-</head>
-<body>
-
-  <div class="container">
-
-    <div class="row">
-      <div class="six columns">
-        <img src="images/me.jpg" alt="Photo of Emmet Connolly" />
-      </div>
-      <div class="six columns content-column">
-        <p>Hello!</p>
-        <p>I'm Emmet, a digital product designer from Ireland. I lead the design team at <a href="https://www.intercom.com/">Intercom</a>.</p>
-        <p>You're not going to believe this, but my personal website is not up to date.</p>
-        <p>However, I do have a <a href="https://thoughtwax.com/">blog</a>, and an <a href="mailto:emmet.connolly@gmail.com">email address</a>, and even a <a href="https://www.linkedin.com/in/emmetconnolly/">LinkedIn</a>. That should keep you going till dinner.</p>
-        <p>&#215;</p>
-      </div>
+      #cardOverlay {
+        position: absolute;
+        pointer-events: none;
+        color: #d0f8d0;
+        font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        font-size: 12px;
+        line-height: 1;
+        display: none;
+      }
+      #cardOverlay a {
+        position: absolute;
+        text-decoration: underline;
+        color: inherit;
+        pointer-events: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <pre id="ascii" class="ascii">Loading…</pre>
+      <div id="cardOverlay" aria-hidden="true"></div>
+      <!-- Business card glyphs are rendered directly within the ASCII grid -->
     </div>
 
-  </div>
+    <script>
+      // Utility: measure monospace character cell
+      function measureCell(fontSizePx) {
+        const span = document.createElement('span');
+        span.textContent = 'M';
+        span.style.fontFamily = '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
+        span.style.fontSize = fontSizePx + 'px';
+        span.style.lineHeight = '1.0';
+        span.style.position = 'absolute';
+        span.style.visibility = 'hidden';
+        document.body.appendChild(span);
+        const rect = span.getBoundingClientRect();
+        span.remove();
+        return { w: rect.width, h: rect.height };
+      }
 
+      // 4×4 Bayer matrix for ordered dithering (values centered around zero)
+      const BAYER4 = new Float32Array([
+        0,  8,  2, 10,
+        12, 4, 14, 6,
+        3, 11, 1,  9,
+        15, 7, 13, 5,
+      ].map(v => v / 16 - 0.5));
 
-</body>
+      const CARD_LINES = [
+        '┌────────────────────────────────┐',
+        '│                                │',
+        '│ EMMET CONNOLLY                 │',
+        '│ VP of Design, Intercom/Fin     │',
+        '│________________________________│',
+        '│                                │',
+        '│ Email / Blog / LinkedIn / X    │',
+        '│                                │',
+        '└────────────────────────────────┘',
+      ];
+      const CARD = {
+        lines: CARD_LINES,
+        width: CARD_LINES[0].length,
+        height: CARD_LINES.length,
+      };
+      function makeLink(lineIndex, text, url) {
+        const line = CARD.lines[lineIndex];
+        if (!line) return null;
+        const start = line.indexOf(text);
+        if (start < 0) return null;
+        return {
+          url,
+          line: lineIndex,
+          start,
+          length: text.length,
+          text,
+        };
+      }
+
+      const CARD_NAME = (() => {
+        const lineIndex = 2;
+        const text = 'EMMET CONNOLLY';
+        const line = CARD.lines[lineIndex];
+        const start = line.indexOf(text);
+        if (start < 0) return null;
+        return { line: lineIndex, start, length: text.length, text };
+      })();
+
+      CARD.links = [
+        makeLink(6, 'Email', 'mailto:emmmet.connolly@gmail.com'),
+        makeLink(6, 'Blog', 'https://thoughtwax.com/'),
+        makeLink(6, 'LinkedIn', 'https://www.linkedin.com/in/emmetconnolly/recent-activity/all/'),
+        makeLink(6, 'X', 'https://x.com/thoughtwax'),
+      ].filter(Boolean);
+
+      // ASCII Renderer
+      class AsciiRenderer {
+        constructor(preEl) {
+          this.el = preEl;
+          this.fontSize = 12;
+          this.cols = 0;
+          this.rows = 0;
+          this.cell = measureCell(this.fontSize);
+          this.cardPlacement = null;
+          this.resize();
+        }
+
+        setFontSize(px) {
+          this.fontSize = px;
+          this.el.style.fontSize = px + 'px';
+          this.cell = measureCell(px);
+          this.resize();
+        }
+
+        resize() {
+          const W = window.innerWidth;
+          const H = window.innerHeight;
+          // Try to choose a font size so that we fit nicely without partial cells.
+          // We constrain the number of columns to a reasonable range for performance.
+          const targetCols = Math.max(80, Math.min(200, Math.floor(W / this.cell.w)));
+          // adjust font size to fit exactly an integer number of columns
+          const colWidth = W / targetCols;
+          const scale = colWidth / this.cell.w;
+          const newFontSize = Math.max(8, Math.min(18, Math.floor(this.fontSize * scale)));
+          this.fontSize = newFontSize;
+          this.el.style.fontSize = newFontSize + 'px';
+          this.cell = measureCell(newFontSize);
+          this.cols = Math.max(40, Math.min(240, Math.floor(W / this.cell.w)));
+          this.rows = Math.max(20, Math.min(160, Math.floor(H / this.cell.h)));
+        }
+
+        renderFromScalar(field, cols, rows, charset, color, options = {}) {
+          // field expected length = cols*rows, values in [0,1]
+          const n = charset.length - 1;
+          const contrast = options.contrast ?? 1;
+          const bias = options.bias ?? 0;
+          const gamma = options.gamma ?? 1;
+          const invert = options.invert ?? false;
+          const useDither = !!options.dither;
+          const matrix = useDither ? BAYER4 : null;
+          const overlayCard = options.overlayCard ?? true;
+          const card = CARD;
+          const cardFits = overlayCard && card && card.width <= cols && card.height <= rows;
+          const cardStartX = cardFits ? Math.floor((cols - card.width) / 2) : 0;
+          const cardStartY = cardFits ? Math.floor((rows - card.height) / 2) : 0;
+          this.cardPlacement = cardFits ? { startX: cardStartX, startY: cardStartY, width: card.width, height: card.height } : null;
+          let out = '';
+          const width = cols;
+          for (let y = 0; y < rows; y++) {
+            const yo = y * width;
+            for (let x = 0; x < cols; x++) {
+          if (cardFits) {
+            const cy = y - cardStartY;
+            if (cy >= 0 && cy < card.height) {
+              const cx = x - cardStartX;
+              if (cx >= 0 && cx < card.width) {
+                out += card.lines[cy][cx];
+                continue;
+              }
+            }
+          }
+              let v = field[yo + x] * contrast + bias;
+              if (v < 0) v = 0;
+              else if (v > 1) v = 1;
+              if (gamma !== 1 && v > 0) v = Math.pow(v, gamma);
+              if (useDither) {
+                const threshold = matrix[((y & 3) << 2) + (x & 3)];
+                const mapped = invert ? 1 - v : v;
+                let idxFloat = mapped * (n + 1) + threshold;
+                let idx = Math.floor(idxFloat);
+                if (idx < 0) idx = 0;
+                else if (idx > n) idx = n;
+                out += charset[idx];
+              } else {
+                const mapped = invert ? 1 - v : v;
+                const idx = Math.max(0, Math.min(n, Math.floor(mapped * n + 0.5)));
+                out += charset[idx];
+              }
+            }
+            if (y < rows - 1) out += '\n';
+          }
+          this.el.textContent = out;
+          if (color !== undefined) this.el.style.color = color;
+          updateCardOverlayPosition(this);
+        }
+      }
+
+      // Simple stable fluids solver (Stam 1999) adapted to non-square grid
+      class Fluid {
+        constructor(nx, ny, diffusion = 0.0001, viscosity = 0.0001, iterations = 10) {
+          this.setSize(nx, ny);
+          this.diff = diffusion;
+          this.visc = viscosity;
+          this.iter = iterations;
+          this.dt = 1/60;
+        }
+
+        setSize(nx, ny) {
+          this.nx = Math.max(8, nx|0);
+          this.ny = Math.max(8, ny|0);
+          const N = (this.nx + 2) * (this.ny + 2);
+          this.s = new Float32Array(N); // temp/source
+          this.d = new Float32Array(N); // density
+          this.Vx = new Float32Array(N);
+          this.Vy = new Float32Array(N);
+          this.Vx0 = new Float32Array(N);
+          this.Vy0 = new Float32Array(N);
+        }
+
+        IX(x, y) { return x + (this.nx + 2) * y; }
+
+        addDensity(x, y, amount) {
+          if (x < 1 || x > this.nx || y < 1 || y > this.ny) return;
+          this.d[this.IX(x, y)] += amount;
+        }
+        addVelocity(x, y, amountX, amountY) {
+          if (x < 1 || x > this.nx || y < 1 || y > this.ny) return;
+          const i = this.IX(x, y);
+          this.Vx[i] += amountX;
+          this.Vy[i] += amountY;
+        }
+
+        step() {
+          const N = this.nx, M = this.ny, dt = this.dt;
+          // Velocity step
+          this.diffuse(1, this.Vx0, this.Vx, this.visc, dt, N, M);
+          this.diffuse(2, this.Vy0, this.Vy, this.visc, dt, N, M);
+          this.project(this.Vx0, this.Vy0, this.Vx, this.Vy, N, M);
+          this.advect(1, this.Vx, this.Vx0, this.Vx0, this.Vy0, dt, N, M);
+          this.advect(2, this.Vy, this.Vy0, this.Vx0, this.Vy0, dt, N, M);
+          this.project(this.Vx, this.Vy, this.Vx0, this.Vy0, N, M);
+          // Density step
+          this.diffuse(0, this.s, this.d, this.diff, dt, N, M);
+          this.advect(0, this.d, this.s, this.Vx, this.Vy, dt, N, M);
+        }
+
+        set_bnd(b, x, N, M) {
+          for (let i = 1; i <= N; i++) {
+            x[this.IX(i, 0    )] = b === 2 ? -x[this.IX(i, 1    )] : x[this.IX(i, 1    )];
+            x[this.IX(i, M + 1)] = b === 2 ? -x[this.IX(i, M    )] : x[this.IX(i, M    )];
+          }
+          for (let j = 1; j <= M; j++) {
+            x[this.IX(0    , j)] = b === 1 ? -x[this.IX(1    , j)] : x[this.IX(1    , j)];
+            x[this.IX(N + 1, j)] = b === 1 ? -x[this.IX(N    , j)] : x[this.IX(N    , j)];
+          }
+          x[this.IX(0    , 0    )] = 0.5 * (x[this.IX(1, 0    )] + x[this.IX(0    , 1)]);
+          x[this.IX(0    , M + 1)] = 0.5 * (x[this.IX(1, M + 1)] + x[this.IX(0    , M)]);
+          x[this.IX(N + 1, 0    )] = 0.5 * (x[this.IX(N, 0    )] + x[this.IX(N + 1, 1)]);
+          x[this.IX(N + 1, M + 1)] = 0.5 * (x[this.IX(N, M + 1)] + x[this.IX(N + 1, M)]);
+        }
+
+        lin_solve(b, x, x0, a, c, N, M) {
+          for (let k = 0; k < this.iter; k++) {
+            for (let j = 1; j <= M; j++) {
+              const joff = (N + 2) * j;
+              for (let i = 1; i <= N; i++) {
+                x[joff + i] = (x0[joff + i] + a * (
+                  x[joff + i - 1] + x[joff + i + 1] +
+                  x[joff - (N + 2) + i] + x[joff + (N + 2) + i]
+                )) / c;
+              }
+            }
+            this.set_bnd(b, x, N, M);
+          }
+        }
+
+        diffuse(b, x, x0, diff, dt, N, M) {
+          const a = dt * diff * N * M; // approximation for non-square grid
+          this.lin_solve(b, x, x0, a, 1 + 4 * a, N, M);
+        }
+
+        advect(b, d, d0, velx, vely, dt, N, M) {
+          const dt0x = dt * N;
+          const dt0y = dt * M;
+          for (let j = 1; j <= M; j++) {
+            for (let i = 1; i <= N; i++) {
+              let x = i - dt0x * velx[this.IX(i, j)];
+              let y = j - dt0y * vely[this.IX(i, j)];
+
+              if (x < 0.5) x = 0.5; if (x > N + 0.5) x = N + 0.5;
+              if (y < 0.5) y = 0.5; if (y > M + 0.5) y = M + 0.5;
+              const i0 = x | 0, i1 = i0 + 1;
+              const j0 = y | 0, j1 = j0 + 1;
+              const s1 = x - i0, s0 = 1 - s1;
+              const t1 = y - j0, t0 = 1 - t1;
+              d[this.IX(i, j)] =
+                s0 * (t0 * d0[this.IX(i0, j0)] + t1 * d0[this.IX(i0, j1)]) +
+                s1 * (t0 * d0[this.IX(i1, j0)] + t1 * d0[this.IX(i1, j1)]);
+            }
+          }
+          this.set_bnd(b, d, N, M);
+        }
+
+        project(velx, vely, p, div, N, M) {
+          for (let j = 1; j <= M; j++) {
+            for (let i = 1; i <= N; i++) {
+              div[this.IX(i, j)] = -0.5 * (
+                (velx[this.IX(i + 1, j)] - velx[this.IX(i - 1, j)]) / N +
+                (vely[this.IX(i, j + 1)] - vely[this.IX(i, j - 1)]) / M
+              );
+              p[this.IX(i, j)] = 0;
+            }
+          }
+          this.set_bnd(0, div, N, M);
+          this.set_bnd(0, p, N, M);
+          this.lin_solve(0, p, div, 1, 4, N, M);
+
+          for (let j = 1; j <= M; j++) {
+            for (let i = 1; i <= N; i++) {
+              velx[this.IX(i, j)] -= 0.5 * N * (p[this.IX(i + 1, j)] - p[this.IX(i - 1, j)]);
+              vely[this.IX(i, j)] -= 0.5 * M * (p[this.IX(i, j + 1)] - p[this.IX(i, j - 1)]);
+            }
+          }
+          this.set_bnd(1, velx, N, M);
+          this.set_bnd(2, vely, N, M);
+        }
+      }
+
+      const DENSITY_CHARSET = ' .:-=+*#%@';
+
+      // Common input state
+      const input = {
+        down: false,
+        x: 0, y: 0,
+        px: 0, py: 0,
+        strength: 50,
+      };
+
+      function clientToCell(clientX, clientY) {
+        const rect = pre.getBoundingClientRect();
+        const xNorm = (clientX - rect.left) / rect.width;
+        const yNorm = (clientY - rect.top) / rect.height;
+        if (xNorm < 0 || xNorm > 1 || yNorm < 0 || yNorm > 1) return null;
+        const x = Math.floor(xNorm * renderer.cols);
+        const y = Math.floor(yNorm * renderer.rows);
+        if (x < 0 || y < 0 || x >= renderer.cols || y >= renderer.rows) return null;
+        return { x, y };
+      }
+
+      function pointOnCard(clientX, clientY) {
+        const placement = renderer.cardPlacement;
+        if (!placement) return null;
+        const cell = clientToCell(clientX, clientY);
+        if (!cell) return null;
+        const cardX = cell.x - placement.startX;
+        const cardY = cell.y - placement.startY;
+        if (cardX < 0 || cardY < 0 || cardX >= placement.width || cardY >= placement.height) return null;
+        return { cardX, cardY };
+      }
+
+      function linkAt(clientX, clientY) {
+        const hit = pointOnCard(clientX, clientY);
+        if (!hit) return null;
+        for (const link of CARD.links) {
+          if (!link) continue;
+          const matchesLine = hit.cardY === link.line || (link.underlineLine !== undefined && hit.cardY === link.underlineLine);
+          if (!matchesLine) continue;
+          if (hit.cardX >= link.start && hit.cardX < link.start + link.length) {
+            return link;
+          }
+        }
+        return null;
+      }
+
+      function attachPointer(el) {
+        el.addEventListener('pointerdown', (e) => {
+          autoMotion = [];
+          autoMotionStart = null;
+          const link = linkAt(e.clientX, e.clientY);
+          if (link) {
+            input.down = false;
+            return;
+          }
+          const cardHit = pointOnCard(e.clientX, e.clientY);
+          input.down = !cardHit;
+          input.x = e.clientX; input.y = e.clientY; input.px = input.x; input.py = input.y;
+        });
+        window.addEventListener('pointerup', () => input.down = false);
+        window.addEventListener('pointermove', (e) => { input.x = e.clientX; input.y = e.clientY; });
+        el.addEventListener('wheel', (e) => {
+          input.strength = Math.max(5, Math.min(300, input.strength + (e.deltaY > 0 ? -5 : 5)));
+          e.preventDefault();
+        }, { passive: false });
+      }
+
+      // Single effect definition
+      const effect = {
+        background: '#000',
+        color: '#d0f8d0',
+        update(t, dt) {
+          const N = fluid.nx, M = fluid.ny;
+          const cx = N * 0.5, cy = M * 0.5;
+          for (let j = 2; j < M; j += 8) {
+            for (let i = 2; i < N; i += 8) {
+              const dx = i - cx, dy = j - cy;
+              const inv = 1 / Math.max(1, Math.hypot(dx, dy));
+              const fx = -dy * 0.05 * inv;
+              const fy = dx * 0.05 * inv;
+              fluid.addVelocity(i, j, fx, fy);
+            }
+          }
+          for (let y = 1; y <= M; y++) {
+            for (let x = 1; x <= N; x++) {
+              const k = fluid.IX(x, y);
+              fluid.d[k] *= 0.999;
+            }
+          }
+        },
+        render() {
+          const cols = renderer.cols, rows = renderer.rows;
+          const field = new Float32Array(cols * rows);
+          for (let y = 0; y < rows; y++) {
+            for (let x = 0; x < cols; x++) {
+              const v = fluid.d[fluid.IX(x + 1, y + 1)];
+              field[y * cols + x] = Math.max(0, Math.min(1, v));
+            }
+          }
+          renderer.renderFromScalar(field, cols, rows, DENSITY_CHARSET, this.color);
+        },
+      };
+
+      const pre = document.getElementById('ascii');
+      const renderer = new AsciiRenderer(pre);
+      const cardOverlay = document.getElementById('cardOverlay');
+      let cardOverlayName = null;
+      const cardOverlayAnchors = [];
+      if (cardOverlay) {
+        cardOverlay.innerHTML = '';
+        if (CARD_NAME) {
+          cardOverlayName = document.createElement('span');
+          cardOverlayName.textContent = CARD_NAME.text;
+          cardOverlayName.style.position = 'absolute';
+          cardOverlayName.style.fontWeight = '700';
+          cardOverlayName.style.pointerEvents = 'none';
+          cardOverlay.appendChild(cardOverlayName);
+        }
+        CARD.links.forEach((link) => {
+          const a = document.createElement('a');
+          a.href = link.url;
+          a.textContent = link.text;
+          a.target = '_blank';
+          a.rel = 'noopener';
+          a.dataset.link = link.text.toLowerCase();
+          cardOverlay.appendChild(a);
+          link.anchor = a;
+          cardOverlayAnchors.push({ link, el: a });
+        });
+      }
+
+      let fluid = new Fluid(renderer.cols, renderer.rows, 0.00005, 0.00005, 12);
+      const appEl = document.getElementById('app');
+      appEl.style.background = effect.background;
+      attachPointer(appEl);
+
+      function updateCardOverlayPosition(rendererInstance) {
+        if (!cardOverlay) return;
+        const placement = rendererInstance.cardPlacement;
+        const cell = rendererInstance.cell;
+        if (!placement) {
+          cardOverlay.style.display = 'none';
+          return;
+        }
+        cardOverlay.style.display = 'block';
+        cardOverlay.style.left = `${placement.startX * cell.w}px`;
+        cardOverlay.style.top = `${placement.startY * cell.h}px`;
+        cardOverlay.style.width = `${placement.width * cell.w}px`;
+        cardOverlay.style.height = `${placement.height * cell.h}px`;
+        cardOverlay.style.fontSize = `${rendererInstance.fontSize}px`;
+        cardOverlay.style.lineHeight = `${cell.h}px`;
+        if (cardOverlayName && CARD_NAME) {
+          cardOverlayName.style.left = `${CARD_NAME.start * cell.w}px`;
+          cardOverlayName.style.top = `${CARD_NAME.line * cell.h}px`;
+          cardOverlayName.style.width = `${CARD_NAME.length * cell.w}px`;
+          cardOverlayName.style.height = `${cell.h}px`;
+          cardOverlayName.style.lineHeight = `${cell.h}px`;
+        }
+        cardOverlayAnchors.forEach(({ link, el }) => {
+          el.style.left = `${link.start * cell.w}px`;
+          el.style.top = `${link.line * cell.h}px`;
+          el.style.width = `${link.length * cell.w}px`;
+          el.style.height = `${cell.h}px`;
+          el.style.lineHeight = `${cell.h}px`;
+        });
+      }
+
+      function resizeAll() {
+        renderer.resize();
+        fluid.setSize(renderer.cols, renderer.rows);
+        updateCardOverlayPosition(renderer);
+        planAutoMotion();
+      }
+      window.addEventListener('resize', () => resizeAll());
+
+      appEl.addEventListener('mousemove', (e) => {
+        const link = linkAt(e.clientX, e.clientY);
+        appEl.style.cursor = link ? 'pointer' : 'crosshair';
+      });
+      appEl.addEventListener('mouseleave', () => {
+        appEl.style.cursor = 'crosshair';
+      });
+
+      appEl.addEventListener('click', (e) => {
+        if (e.target && e.target.closest && e.target.closest('#cardOverlay')) {
+          return;
+        }
+        const link = linkAt(e.clientX, e.clientY);
+        if (!link) return;
+        window.open(link.url, '_blank', 'noopener');
+        e.preventDefault();
+      });
+
+      function injectFromPointer() {
+        if (!input.down) return;
+        const gx = Math.floor((input.x / window.innerWidth) * fluid.nx) + 1;
+        const gy = Math.floor((input.y / window.innerHeight) * fluid.ny) + 1;
+        const pgx = Math.floor((input.px / window.innerWidth) * fluid.nx) + 1;
+        const pgy = Math.floor((input.py / window.innerHeight) * fluid.ny) + 1;
+        const vx = (gx - pgx) * (input.strength / 40);
+        const vy = (gy - pgy) * (input.strength / 40);
+        for (let ry = -1; ry <= 1; ry++) {
+          for (let rx = -1; rx <= 1; rx++) {
+            const x = gx + rx, y = gy + ry;
+            fluid.addDensity(x, y, input.strength * (rx === 0 && ry === 0 ? 0.5 : 0.2));
+            fluid.addVelocity(x, y, vx, vy);
+          }
+        }
+        input.px = input.x; input.py = input.y;
+      }
+
+      let paused = false;
+      let last = performance.now();
+      let autoMotion = [];
+      let autoMotionStart = null;
+      window.addEventListener('keydown', (e) => {
+        if (e.code === 'Space') {
+          paused = !paused;
+          e.preventDefault();
+        }
+      });
+
+      function planAutoMotion() {
+        const rect = pre.getBoundingClientRect();
+        if (!rect.width || !rect.height) return;
+        const centerX = rect.left + rect.width * 0.55;
+        const centerY = rect.top + rect.height * 0.45;
+        const radius = Math.min(rect.width, rect.height) * 0.22;
+        const steps = 28;
+        autoMotion = [];
+        autoMotionStart = null;
+        input.down = false;
+        const startAngle = Math.random() * Math.PI * 2;
+        for (let i = 0; i < steps; i++) {
+          const theta = startAngle + (i / steps) * Math.PI * 2;
+          const x = centerX + Math.cos(theta) * radius;
+          const y = centerY + Math.sin(theta) * radius * 0.65;
+          autoMotion.push({ x, y });
+        }
+      }
+
+      function frame(t) {
+        const dt = Math.min(0.05, (t - last) / 1000);
+        last = t;
+        if (!paused) {
+          if (autoMotion.length) {
+            if (!autoMotionStart) autoMotionStart = t;
+            const elapsed = t - autoMotionStart;
+            const len = autoMotion.length;
+            const idx = Math.floor((elapsed / 32) % len);
+            const segment = autoMotion[idx];
+            const prev = autoMotion[(idx - 1 + len) % len];
+            input.down = true;
+            input.px = prev.x;
+            input.py = prev.y;
+            input.x = segment.x;
+            input.y = segment.y;
+            injectFromPointer();
+            if (elapsed >= len * 32) {
+              autoMotion = [];
+              input.down = false;
+              autoMotionStart = null;
+            }
+          } else if (input.down) {
+            injectFromPointer();
+          }
+          const seconds = t / 1000;
+          effect.update(seconds, dt);
+          fluid.step();
+          effect.render();
+        }
+        requestAnimationFrame(frame);
+      }
+
+      resizeAll();
+      planAutoMotion();
+      requestAnimationFrame(frame);
+    </script>
+  </body>
 </html>
