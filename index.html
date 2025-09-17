@@ -379,6 +379,12 @@
         strength: 50,
       };
 
+      // Mobile triple-tap detector (background only)
+      const tapHistory = [];
+      const TRIPLE_TAP_WINDOW = 500; // ms
+      const TRIPLE_TAP_RADIUS = 60; // px
+      let suppressNextClick = false;
+
       function clientToCell(clientX, clientY) {
         const rect = pre.getBoundingClientRect();
         const xNorm = (clientX - rect.left) / rect.width;
@@ -417,6 +423,33 @@
 
       function attachPointer(el) {
         el.addEventListener('pointerdown', (e) => {
+          // Detect triple-tap on background (touch only)
+          if (e.pointerType === 'touch') {
+            const link = linkAt(e.clientX, e.clientY);
+            const onCard = !!pointOnCard(e.clientX, e.clientY);
+            if (!link && !onCard) {
+              const now = performance.now();
+              tapHistory.push({ t: now, x: e.clientX, y: e.clientY });
+              // Keep only recent taps
+              while (tapHistory.length > 3 || (tapHistory[0] && now - tapHistory[0].t > TRIPLE_TAP_WINDOW)) {
+                tapHistory.shift();
+              }
+              if (tapHistory.length === 3) {
+                const a = tapHistory[0], b = tapHistory[1], c = tapHistory[2];
+                const withinTime = c.t - a.t <= TRIPLE_TAP_WINDOW;
+                const dist = (p, q) => Math.hypot(p.x - q.x, p.y - q.y);
+                const withinSpace = dist(a, c) <= TRIPLE_TAP_RADIUS && dist(b, c) <= TRIPLE_TAP_RADIUS;
+                if (withinTime && withinSpace) {
+                  toggleWebcamMode();
+                  tapHistory.length = 0;
+                  input.down = false;
+                  suppressNextClick = true;
+                  if (e.cancelable) e.preventDefault();
+                  return; // don't start drawing
+                }
+              }
+            }
+          }
           autoMotion = [];
           autoMotionStart = null;
           const link = linkAt(e.clientX, e.clientY);
@@ -565,10 +598,22 @@
       });
 
       appEl.addEventListener('click', (e) => {
+        if (suppressNextClick) {
+          suppressNextClick = false;
+          e.preventDefault();
+          return;
+        }
         if (e.target && e.target.closest && e.target.closest('#cardOverlay')) {
           return;
         }
         const link = linkAt(e.clientX, e.clientY);
+        const onCard = !!pointOnCard(e.clientX, e.clientY);
+        // Desktop triple-click on background toggles webcam mode
+        if (e.detail >= 3 && !link && !onCard) {
+          toggleWebcamMode();
+          e.preventDefault();
+          return;
+        }
         if (!link) return;
         window.open(link.url, '_blank', 'noopener');
         e.preventDefault();
@@ -601,6 +646,9 @@
         if (e.code === 'Space') {
           paused = !paused;
           e.preventDefault();
+        } else if (e.key === 'c' || e.key === 'C') {
+          toggleWebcamMode();
+          e.preventDefault();
         }
       });
 
@@ -626,11 +674,110 @@
 
       const AUTO_MOTION_STRENGTH = 7; // halved again for extra softness
 
+      // Webcam ASCII mode state
+      const webcam = {
+        active: false,
+        stream: null,
+        video: null,
+        canvas: null,
+        ctx: null,
+      };
+
+      async function startWebcam() {
+        if (webcam.active) return true;
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
+          const video = document.createElement('video');
+          video.autoplay = true;
+          video.playsInline = true;
+          video.muted = true;
+          video.srcObject = stream;
+          // Hidden processing canvas
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d', { willReadFrequently: true });
+          webcam.stream = stream;
+          webcam.video = video;
+          webcam.canvas = canvas;
+          webcam.ctx = ctx;
+          // Wait until we have video dimensions and can play
+          await new Promise((resolve) => {
+            if (video.readyState >= 2 && video.videoWidth) return resolve();
+            const onReady = () => {
+              video.removeEventListener('loadeddata', onReady);
+              resolve();
+            };
+            video.addEventListener('loadeddata', onReady, { once: true });
+          });
+          try { await video.play(); } catch (_) {}
+          webcam.active = true;
+          return true;
+        } catch (err) {
+          console.error('Webcam error:', err);
+          webcam.active = false;
+          return false;
+        }
+      }
+
+      function stopWebcam() {
+        if (!webcam.active) return;
+        if (webcam.stream) {
+          for (const tr of webcam.stream.getTracks()) tr.stop();
+        }
+        webcam.stream = null;
+        webcam.video = null;
+        webcam.canvas = null;
+        webcam.ctx = null;
+        webcam.active = false;
+      }
+
+      async function toggleWebcamMode() {
+        if (webcam.active) {
+          stopWebcam();
+          planAutoMotion();
+        } else {
+          // disable auto motion when switching to webcam mode
+          autoMotion = [];
+          autoMotionStart = null;
+          await startWebcam();
+        }
+      }
+
+      function renderWebcamASCII() {
+        if (!webcam.active || !webcam.video || !webcam.ctx) return;
+        if (!webcam.video.videoWidth || !webcam.video.videoHeight || webcam.video.readyState < 2) return;
+        const cols = renderer.cols, rows = renderer.rows;
+        if (webcam.canvas.width !== cols || webcam.canvas.height !== rows) {
+          webcam.canvas.width = cols;
+          webcam.canvas.height = rows;
+        }
+        const ctx = webcam.ctx;
+        // Clear and mirror for selfie view
+        ctx.clearRect(0, 0, cols, rows);
+        ctx.save();
+        ctx.scale(-1, 1);
+        // Stretch to grid; minor distortion acceptable for ASCII sampling
+        ctx.drawImage(webcam.video, -cols, 0, cols, rows);
+        ctx.restore();
+        const img = ctx.getImageData(0, 0, cols, rows).data;
+        const field = new Float32Array(cols * rows);
+        for (let y = 0; y < rows; y++) {
+          for (let x = 0; x < cols; x++) {
+            const i = (y * cols + x) * 4;
+            const r = img[i], g = img[i + 1], b = img[i + 2];
+            const v = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255; // [0,1]
+            field[y * cols + x] = v;
+          }
+        }
+        renderer.renderFromScalar(field, cols, rows, DENSITY_CHARSET, effect.color);
+      }
+
       function frame(t) {
         const dt = Math.min(0.05, (t - last) / 1000);
         last = t;
         if (!paused) {
-          if (autoMotion.length) {
+          if (webcam.active) {
+            renderWebcamASCII();
+          } else if (autoMotion.length) {
             if (!autoMotionStart) autoMotionStart = t;
             const elapsed = t - autoMotionStart;
             const len = autoMotion.length;
@@ -655,10 +802,12 @@
           } else if (input.down) {
             injectFromPointer();
           }
-          const seconds = t / 1000;
-          effect.update(seconds, dt);
-          fluid.step();
-          effect.render();
+          if (!webcam.active) {
+            const seconds = t / 1000;
+            effect.update(seconds, dt);
+            fluid.step();
+            effect.render();
+          }
         }
         requestAnimationFrame(frame);
       }
