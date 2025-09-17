@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>ASCII Fluid Gallery</title>
+    <title>Emmet Connolly / digital product designer</title>
     <style>
       /* Reset and fullscreen */
       html, body {
@@ -29,6 +29,9 @@
         -moz-user-select: none;
         -ms-user-select: none;
         cursor: crosshair;
+        /* Prevent page scroll/gestures interfering with drawing */
+        touch-action: none;
+        overscroll-behavior: none;
       }
 
       pre.ascii {
@@ -43,6 +46,7 @@
         letter-spacing: 0px;
         white-space: pre;
         color: #d0f8d0;
+        touch-action: none;
       }
 
       #cardOverlay {
@@ -420,9 +424,15 @@
           const cardHit = pointOnCard(e.clientX, e.clientY);
           input.down = !cardHit;
           input.x = e.clientX; input.y = e.clientY; input.px = input.x; input.py = input.y;
+          // On touch devices, stop default scrolling/gestures when drawing on the background
+          if (input.down && e.cancelable) e.preventDefault();
         });
         window.addEventListener('pointerup', () => input.down = false);
         window.addEventListener('pointermove', (e) => { input.x = e.clientX; input.y = e.clientY; });
+        // Ensure touch-drag doesn't scroll while drawing
+        el.addEventListener('pointermove', (e) => {
+          if (input.down && e.cancelable) e.preventDefault();
+        }, { passive: false });
         el.addEventListener('wheel', (e) => {
           input.strength = Math.max(5, Math.min(300, input.strength + (e.deltaY > 0 ? -5 : 5)));
           e.preventDefault();
@@ -539,7 +549,13 @@
 
       appEl.addEventListener('mousemove', (e) => {
         const link = linkAt(e.clientX, e.clientY);
-        appEl.style.cursor = link ? 'pointer' : 'crosshair';
+        if (link) {
+          appEl.style.cursor = 'pointer';
+        } else if (pointOnCard(e.clientX, e.clientY)) {
+          appEl.style.cursor = 'default';
+        } else {
+          appEl.style.cursor = 'crosshair';
+        }
       });
       appEl.addEventListener('mouseleave', () => {
         appEl.style.cursor = 'crosshair';
