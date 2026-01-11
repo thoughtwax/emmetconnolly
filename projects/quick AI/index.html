@@ -1,0 +1,787 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#000000">
+    <title>Quick AI</title>
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="icon.svg">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: white;
+            overflow-x: hidden;
+        }
+
+        .container {
+            max-width: 100%;
+            padding: 20px;
+            min-height: 100vh;
+        }
+
+        /* Settings Button */
+        .settings-btn {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: rgba(255, 255, 255, 0.2);
+            border: none;
+            color: white;
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            font-size: 20px;
+            cursor: pointer;
+            backdrop-filter: blur(10px);
+            z-index: 1000;
+        }
+
+        /* Voice Input Section */
+        .voice-section {
+            text-align: center;
+            padding: 60px 20px 40px;
+        }
+
+        .voice-section h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+
+        .voice-section p {
+            opacity: 0.9;
+            margin-bottom: 30px;
+        }
+
+        .mic-button {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.3);
+            border: 4px solid white;
+            color: white;
+            font-size: 48px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(10px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto;
+        }
+
+        .mic-button:active {
+            transform: scale(0.95);
+        }
+
+        .mic-button.listening {
+            background: rgba(255, 100, 100, 0.5);
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+
+        .transcript {
+            margin-top: 30px;
+            min-height: 60px;
+            background: rgba(255, 255, 255, 0.15);
+            padding: 20px;
+            border-radius: 15px;
+            backdrop-filter: blur(10px);
+            font-size: 1.1em;
+            line-height: 1.5;
+        }
+
+        .transcript.empty {
+            opacity: 0.6;
+            font-style: italic;
+        }
+
+        /* Results Section */
+        .results {
+            display: none;
+            margin-top: 30px;
+        }
+
+        .results.show {
+            display: block;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            font-size: 1.2em;
+        }
+
+        .spinner {
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-top: 3px solid white;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .comparison {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        @media (max-width: 768px) {
+            .comparison {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .response-card {
+            background: rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 20px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border: 2px solid transparent;
+        }
+
+        .response-card:hover {
+            background: rgba(255, 255, 255, 0.25);
+            border-color: white;
+            transform: translateY(-5px);
+        }
+
+        .response-card h3 {
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .response-card .icon {
+            font-size: 1.5em;
+        }
+
+        .response-text {
+            line-height: 1.6;
+            opacity: 0.95;
+            white-space: pre-wrap;
+        }
+
+        .error {
+            background: rgba(255, 100, 100, 0.3);
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 10px;
+        }
+
+        /* History Section */
+        .history {
+            display: none;
+            margin-top: 40px;
+        }
+
+        .history.show {
+            display: block;
+        }
+
+        .history h2 {
+            margin-bottom: 20px;
+        }
+
+        .history-item {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 15px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .history-item:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .history-item .query {
+            font-weight: 600;
+            margin-bottom: 5px;
+        }
+
+        .history-item .timestamp {
+            font-size: 0.85em;
+            opacity: 0.7;
+        }
+
+        /* Settings Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 2000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal.show {
+            display: flex;
+        }
+
+        .modal-content {
+            background: white;
+            color: #333;
+            padding: 30px;
+            border-radius: 20px;
+            max-width: 500px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .modal-content h2 {
+            margin-bottom: 20px;
+            color: #667eea;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #555;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 1em;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .btn {
+            padding: 12px 30px;
+            border: none;
+            border-radius: 8px;
+            font-size: 1em;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary {
+            background: #667eea;
+            color: white;
+            margin-right: 10px;
+        }
+
+        .btn-primary:hover {
+            background: #5568d3;
+        }
+
+        .btn-secondary {
+            background: #ddd;
+            color: #333;
+        }
+
+        .btn-secondary:hover {
+            background: #ccc;
+        }
+
+        .new-query-btn {
+            margin: 30px auto;
+            display: block;
+            background: rgba(255, 255, 255, 0.3);
+            color: white;
+            border: 2px solid white;
+            padding: 15px 40px;
+            font-size: 1.1em;
+        }
+
+        .new-query-btn:hover {
+            background: rgba(255, 255, 255, 0.4);
+        }
+
+        /* Toast Notification */
+        .toast {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%) translateY(100px);
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 15px 30px;
+            border-radius: 50px;
+            font-weight: 600;
+            transition: transform 0.3s ease;
+            z-index: 3000;
+        }
+
+        .toast.show {
+            transform: translateX(-50%) translateY(0);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <button class="settings-btn" onclick="openSettings()">⚙️</button>
+
+        <!-- Voice Input Section -->
+        <div class="voice-section">
+            <h1>Quick AI</h1>
+            <p>Tap to speak your query</p>
+
+            <button class="mic-button" id="micButton" onclick="toggleVoice()">
+                🎤
+            </button>
+
+            <div class="transcript empty" id="transcript">
+                Your query will appear here...
+            </div>
+        </div>
+
+        <!-- Results Section -->
+        <div class="results" id="results">
+            <div class="loading" id="loading">
+                <div class="spinner"></div>
+                <p>Querying both AIs...</p>
+            </div>
+
+            <div class="comparison" id="comparison" style="display: none;">
+                <div class="response-card" id="chatgptCard" onclick="selectResponse('chatgpt')">
+                    <h3><span class="icon">💬</span> ChatGPT</h3>
+                    <div class="response-text" id="chatgptResponse"></div>
+                </div>
+
+                <div class="response-card" id="claudeCard" onclick="selectResponse('claude')">
+                    <h3><span class="icon">🤖</span> Claude</h3>
+                    <div class="response-text" id="claudeResponse"></div>
+                </div>
+            </div>
+
+            <button class="btn new-query-btn" onclick="newQuery()">New Query</button>
+        </div>
+
+        <!-- History Section -->
+        <div class="history" id="history">
+            <h2>Recent Queries</h2>
+            <div id="historyList"></div>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div class="modal" id="settingsModal">
+        <div class="modal-content">
+            <h2>API Settings</h2>
+
+            <div class="form-group">
+                <label for="openaiKey">OpenAI API Key</label>
+                <input type="password" id="openaiKey" placeholder="sk-...">
+            </div>
+
+            <div class="form-group">
+                <label for="anthropicKey">Anthropic API Key</label>
+                <input type="password" id="anthropicKey" placeholder="sk-ant-...">
+            </div>
+
+            <p style="margin: 20px 0; font-size: 0.9em; color: #666;">
+                Your API keys are stored locally in your browser and never sent anywhere except directly to OpenAI and Anthropic.
+            </p>
+
+            <button class="btn btn-primary" onclick="saveSettings()">Save</button>
+            <button class="btn btn-secondary" onclick="closeSettings()">Cancel</button>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div class="toast" id="toast"></div>
+
+    <script>
+        // State
+        let recognition = null;
+        let isListening = false;
+        let currentQuery = '';
+        let db = null;
+
+        // Initialize IndexedDB
+        function initDB() {
+            const request = indexedDB.open('QuickAI', 1);
+
+            request.onerror = () => console.error('DB error');
+
+            request.onsuccess = (e) => {
+                db = e.target.result;
+                loadHistory();
+            };
+
+            request.onupgradeneeded = (e) => {
+                const database = e.target.result;
+                if (!database.objectStoreNames.contains('queries')) {
+                    database.createObjectStore('queries', { keyPath: 'id', autoIncrement: true });
+                }
+            };
+        }
+
+        // Initialize Speech Recognition
+        function initSpeech() {
+            if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+                showToast('Speech recognition not supported in this browser');
+                return false;
+            }
+
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            recognition = new SpeechRecognition();
+            recognition.continuous = false;
+            recognition.interimResults = true;
+            recognition.lang = 'en-US';
+
+            recognition.onresult = (event) => {
+                let interimTranscript = '';
+                let finalTranscript = '';
+
+                for (let i = event.resultIndex; i < event.results.length; i++) {
+                    const transcript = event.results[i][0].transcript;
+                    if (event.results[i].isFinal) {
+                        finalTranscript += transcript + ' ';
+                    } else {
+                        interimTranscript += transcript;
+                    }
+                }
+
+                const transcriptEl = document.getElementById('transcript');
+                currentQuery = (finalTranscript || interimTranscript).trim();
+
+                if (currentQuery) {
+                    transcriptEl.textContent = currentQuery;
+                    transcriptEl.classList.remove('empty');
+                }
+            };
+
+            recognition.onend = () => {
+                isListening = false;
+                document.getElementById('micButton').classList.remove('listening');
+
+                if (currentQuery) {
+                    executeQuery();
+                }
+            };
+
+            recognition.onerror = (event) => {
+                console.error('Speech recognition error:', event.error);
+                isListening = false;
+                document.getElementById('micButton').classList.remove('listening');
+                showToast('Error: ' + event.error);
+            };
+
+            return true;
+        }
+
+        // Toggle Voice Input
+        function toggleVoice() {
+            if (!recognition && !initSpeech()) {
+                return;
+            }
+
+            if (isListening) {
+                recognition.stop();
+            } else {
+                currentQuery = '';
+                recognition.start();
+                isListening = true;
+                document.getElementById('micButton').classList.add('listening');
+            }
+        }
+
+        // Execute Query
+        async function executeQuery() {
+            if (!currentQuery) return;
+
+            const openaiKey = localStorage.getItem('openai_key');
+            const anthropicKey = localStorage.getItem('anthropic_key');
+
+            if (!openaiKey || !anthropicKey) {
+                showToast('Please configure API keys in settings');
+                openSettings();
+                return;
+            }
+
+            // Show results section
+            document.getElementById('results').classList.add('show');
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('comparison').style.display = 'none';
+
+            // Scroll to results
+            document.getElementById('results').scrollIntoView({ behavior: 'smooth' });
+
+            try {
+                // Execute both queries in parallel
+                const [chatgptResult, claudeResult] = await Promise.allSettled([
+                    queryChatGPT(currentQuery, openaiKey),
+                    queryClaude(currentQuery, anthropicKey)
+                ]);
+
+                // Hide loading
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('comparison').style.display = 'grid';
+
+                // Display ChatGPT result
+                const chatgptCard = document.getElementById('chatgptCard');
+                const chatgptResponse = document.getElementById('chatgptResponse');
+                if (chatgptResult.status === 'fulfilled') {
+                    chatgptResponse.textContent = chatgptResult.value;
+                    chatgptCard.classList.remove('error');
+                } else {
+                    chatgptResponse.innerHTML = `<div class="error">Error: ${chatgptResult.reason}</div>`;
+                }
+
+                // Display Claude result
+                const claudeCard = document.getElementById('claudeCard');
+                const claudeResponse = document.getElementById('claudeResponse');
+                if (claudeResult.status === 'fulfilled') {
+                    claudeResponse.textContent = claudeResult.value;
+                    claudeCard.classList.remove('error');
+                } else {
+                    claudeResponse.innerHTML = `<div class="error">Error: ${claudeResult.reason}</div>`;
+                }
+
+                // Save to history
+                saveToHistory(
+                    currentQuery,
+                    chatgptResult.status === 'fulfilled' ? chatgptResult.value : null,
+                    claudeResult.status === 'fulfilled' ? claudeResult.value : null
+                );
+
+            } catch (error) {
+                document.getElementById('loading').innerHTML = `<div class="error">Error: ${error.message}</div>`;
+            }
+        }
+
+        // Query ChatGPT
+        async function queryChatGPT(query, apiKey) {
+            const response = await fetch('https://api.openai.com/v1/chat/completions', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${apiKey}`
+                },
+                body: JSON.stringify({
+                    model: 'gpt-4o-mini',
+                    messages: [{ role: 'user', content: query }],
+                    max_tokens: 500
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error(`ChatGPT API error: ${response.status}`);
+            }
+
+            const data = await response.json();
+            return data.choices[0].message.content;
+        }
+
+        // Query Claude
+        async function queryClaude(query, apiKey) {
+            const response = await fetch('https://api.anthropic.com/v1/messages', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-api-key': apiKey,
+                    'anthropic-version': '2023-06-01'
+                },
+                body: JSON.stringify({
+                    model: 'claude-3-5-sonnet-20241022',
+                    max_tokens: 500,
+                    messages: [{ role: 'user', content: query }]
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error(`Claude API error: ${response.status}`);
+            }
+
+            const data = await response.json();
+            return data.content[0].text;
+        }
+
+        // Select Response and Copy
+        async function selectResponse(ai) {
+            const query = currentQuery;
+            let response = '';
+
+            if (ai === 'chatgpt') {
+                response = document.getElementById('chatgptResponse').textContent;
+            } else {
+                response = document.getElementById('claudeResponse').textContent;
+            }
+
+            // Copy full conversation to clipboard
+            const fullText = `Query: ${query}\n\nResponse:\n${response}`;
+
+            try {
+                await navigator.clipboard.writeText(fullText);
+                showToast('Copied to clipboard!');
+
+                // Try to open native app
+                setTimeout(() => {
+                    if (ai === 'chatgpt') {
+                        // Try various ChatGPT URL schemes
+                        window.location.href = 'chatgpt://';
+                        setTimeout(() => {
+                            window.location.href = 'https://chat.openai.com';
+                        }, 1000);
+                    } else {
+                        // Try various Claude URL schemes
+                        window.location.href = 'claude://';
+                        setTimeout(() => {
+                            window.location.href = 'https://claude.ai';
+                        }, 1000);
+                    }
+                }, 500);
+            } catch (error) {
+                showToast('Failed to copy to clipboard');
+            }
+        }
+
+        // New Query
+        function newQuery() {
+            currentQuery = '';
+            document.getElementById('transcript').textContent = 'Your query will appear here...';
+            document.getElementById('transcript').classList.add('empty');
+            document.getElementById('results').classList.remove('show');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        // Settings
+        function openSettings() {
+            document.getElementById('openaiKey').value = localStorage.getItem('openai_key') || '';
+            document.getElementById('anthropicKey').value = localStorage.getItem('anthropic_key') || '';
+            document.getElementById('settingsModal').classList.add('show');
+        }
+
+        function closeSettings() {
+            document.getElementById('settingsModal').classList.remove('show');
+        }
+
+        function saveSettings() {
+            const openaiKey = document.getElementById('openaiKey').value.trim();
+            const anthropicKey = document.getElementById('anthropicKey').value.trim();
+
+            if (openaiKey) localStorage.setItem('openai_key', openaiKey);
+            if (anthropicKey) localStorage.setItem('anthropic_key', anthropicKey);
+
+            showToast('Settings saved!');
+            closeSettings();
+        }
+
+        // History
+        function saveToHistory(query, chatgptResponse, claudeResponse) {
+            if (!db) return;
+
+            const transaction = db.transaction(['queries'], 'readwrite');
+            const store = transaction.objectStore('queries');
+
+            store.add({
+                query,
+                chatgptResponse,
+                claudeResponse,
+                timestamp: new Date().toISOString()
+            });
+
+            transaction.oncomplete = () => loadHistory();
+        }
+
+        function loadHistory() {
+            if (!db) return;
+
+            const transaction = db.transaction(['queries'], 'readonly');
+            const store = transaction.objectStore('queries');
+            const request = store.getAll();
+
+            request.onsuccess = () => {
+                const queries = request.result.reverse().slice(0, 10);
+                const historyList = document.getElementById('historyList');
+
+                if (queries.length === 0) {
+                    historyList.innerHTML = '<p style="opacity: 0.6;">No queries yet</p>';
+                } else {
+                    historyList.innerHTML = queries.map(q => `
+                        <div class="history-item" onclick='viewHistoryItem(${JSON.stringify(q).replace(/'/g, "&apos;")})'>
+                            <div class="query">${q.query}</div>
+                            <div class="timestamp">${new Date(q.timestamp).toLocaleString()}</div>
+                        </div>
+                    `).join('');
+                }
+
+                document.getElementById('history').classList.add('show');
+            };
+        }
+
+        function viewHistoryItem(item) {
+            currentQuery = item.query;
+            document.getElementById('transcript').textContent = currentQuery;
+            document.getElementById('transcript').classList.remove('empty');
+
+            if (item.chatgptResponse) {
+                document.getElementById('chatgptResponse').textContent = item.chatgptResponse;
+            }
+            if (item.claudeResponse) {
+                document.getElementById('claudeResponse').textContent = item.claudeResponse;
+            }
+
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('comparison').style.display = 'grid';
+            document.getElementById('results').classList.add('show');
+
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        // Toast
+        function showToast(message) {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.classList.add('show');
+
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, 3000);
+        }
+
+        // Initialize on load
+        window.addEventListener('load', () => {
+            initDB();
+            initSpeech();
+        });
+    </script>
+</body>
+</html>

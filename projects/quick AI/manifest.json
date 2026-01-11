@@ -1,0 +1,18 @@
+{
+  "name": "Quick AI",
+  "short_name": "Quick AI",
+  "description": "Query ChatGPT and Claude simultaneously with voice input",
+  "start_url": "/projects/quick%20AI/index.html",
+  "display": "standalone",
+  "background_color": "#667eea",
+  "theme_color": "#667eea",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
