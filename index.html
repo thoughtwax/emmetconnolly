@@ -101,7 +101,7 @@
         '┌────────────────────────────────┐',
         '│                                │',
         '│ EMMET CONNOLLY                 │',
-        '│ VP of Design, Intercom/Fin     │',
+        '│ SVP of Design, Intercom/Fin    │',
         '│________________________________│',
         '│                                │',
         '│ Email / Blog / LinkedIn / X    │',
@@ -379,10 +379,10 @@
         strength: 50,
       };
 
-      // Mobile triple-tap detector (background only)
+      // Mobile double-tap detector (background only)
       const tapHistory = [];
-      const TRIPLE_TAP_WINDOW = 500; // ms
-      const TRIPLE_TAP_RADIUS = 60; // px
+      const DOUBLE_TAP_WINDOW = 500; // ms
+      const DOUBLE_TAP_RADIUS = 60; // px
       let suppressNextClick = false;
 
       function clientToCell(clientX, clientY) {
@@ -431,14 +431,14 @@
               const now = performance.now();
               tapHistory.push({ t: now, x: e.clientX, y: e.clientY });
               // Keep only recent taps
-              while (tapHistory.length > 3 || (tapHistory[0] && now - tapHistory[0].t > TRIPLE_TAP_WINDOW)) {
+              while (tapHistory.length > 2 || (tapHistory[0] && now - tapHistory[0].t > DOUBLE_TAP_WINDOW)) {
                 tapHistory.shift();
               }
-              if (tapHistory.length === 3) {
-                const a = tapHistory[0], b = tapHistory[1], c = tapHistory[2];
-                const withinTime = c.t - a.t <= TRIPLE_TAP_WINDOW;
+              if (tapHistory.length === 2) {
+                const a = tapHistory[0], b = tapHistory[1];
+                const withinTime = b.t - a.t <= DOUBLE_TAP_WINDOW;
                 const dist = (p, q) => Math.hypot(p.x - q.x, p.y - q.y);
-                const withinSpace = dist(a, c) <= TRIPLE_TAP_RADIUS && dist(b, c) <= TRIPLE_TAP_RADIUS;
+                const withinSpace = dist(a, b) <= DOUBLE_TAP_RADIUS;
                 if (withinTime && withinSpace) {
                   toggleWebcamMode();
                   tapHistory.length = 0;
@@ -608,8 +608,8 @@
         }
         const link = linkAt(e.clientX, e.clientY);
         const onCard = !!pointOnCard(e.clientX, e.clientY);
-        // Desktop triple-click on background toggles webcam mode
-        if (e.detail >= 3 && !link && !onCard) {
+        // Desktop double-click on background toggles webcam mode
+        if (e.detail >= 2 && !link && !onCard) {
           toggleWebcamMode();
           e.preventDefault();
           return;
