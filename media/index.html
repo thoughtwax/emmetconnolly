@@ -1,0 +1,1007 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Media / Emmet Connolly</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html {
+        scroll-behavior: smooth;
+      }
+      body {
+        background: #fff;
+        color: #000;
+        font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        font-size: 14px;
+        line-height: 1.5;
+        min-height: 100vh;
+      }
+      .container {
+        display: flex;
+        min-height: 100vh;
+      }
+      nav {
+        width: 320px;
+        flex-shrink: 0;
+        padding: 48px 0;
+        position: sticky;
+        top: 0;
+        height: 100vh;
+        overflow-y: auto;
+        border-right: 1px solid #e5e5e5;
+        background: #fafafa;
+      }
+      .nav-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-end;
+        padding: 0 20px 20px;
+        margin-bottom: 0;
+        border-bottom: 1px solid #e5e5e5;
+      }
+      nav h1 {
+        font-size: 14px;
+        font-weight: 400;
+        margin: 0;
+        line-height: 1;
+      }
+      nav ul {
+        list-style: none;
+      }
+      .nav-item {
+        display: block;
+        padding: 12px 20px;
+        cursor: pointer;
+        border-bottom: 1px solid #e5e5e5;
+        overflow: hidden;
+        max-height: 100px;
+        opacity: 1;
+        transition:
+          max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+          opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+          padding 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+          border-color 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+      .nav-item:first-child {
+        border-top: 1px solid #e5e5e5;
+      }
+      .nav-item:hover {
+        background: #f0f0f0;
+      }
+      .nav-item.active {
+        background: #e8e8e8;
+      }
+      .nav-content {
+        flex: 1;
+        min-width: 0;
+      }
+      /* Type icon badge in metadata row */
+      .type-icon {
+        display: inline-flex;
+        align-items: center;
+        vertical-align: middle;
+        margin-right: 4px;
+      }
+      .type-icon svg {
+        width: 10px;
+        height: 10px;
+        position: relative;
+        top: -1px;
+      }
+      .nav-item[data-type="talk"] .type-icon svg rect {
+        fill: none;
+        stroke: #888;
+        stroke-width: 1.5;
+      }
+      .nav-item[data-type="talk"] .type-icon svg polygon {
+        fill: #888;
+        stroke: none;
+      }
+      .nav-item[data-type="writing"] .type-icon svg {
+        fill: none;
+        stroke: #888;
+        stroke-width: 1.5;
+      }
+      .nav-item[data-type="podcast"] .type-icon svg {
+        fill: none;
+        stroke: #888;
+        stroke-width: 1.5;
+      }
+      .talk-title {
+        color: #000;
+        font-size: 13px;
+        line-height: 1.4;
+        display: block;
+      }
+      .talk-meta {
+        color: #888;
+        font-size: 11px;
+        margin-top: 2px;
+        display: block;
+      }
+      .back {
+        margin-top: 24px;
+        padding: 0 20px;
+        color: #999;
+      }
+      .back a {
+        color: inherit;
+        text-decoration: none;
+      }
+      .back a:hover {
+        text-decoration: underline;
+      }
+      .filter-bar {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 4px;
+      }
+      .filter-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 0;
+        padding: 0;
+        font-size: 11px;
+        color: #888;
+        background: none;
+        border: none;
+        cursor: pointer;
+        font-family: inherit;
+      }
+      .filter-pill.active {
+        color: #888;
+      }
+      .filter-icon {
+        display: inline-flex;
+        align-items: center;
+        margin-right: 4px;
+      }
+      .filter-icon svg {
+        width: 10px;
+        height: 10px;
+        position: relative;
+        top: -1px;
+      }
+      .filter-pill[data-filter="talk"] .filter-icon svg rect {
+        fill: none;
+        stroke: #888;
+        stroke-width: 1.5;
+      }
+      .filter-pill[data-filter="talk"] .filter-icon svg polygon {
+        fill: #888;
+        stroke: none;
+      }
+      .filter-pill[data-filter="writing"] .filter-icon svg {
+        fill: none;
+        stroke: #888;
+        stroke-width: 1.5;
+      }
+      .filter-pill[data-filter="podcast"] .filter-icon svg {
+        fill: none;
+        stroke: #888;
+        stroke-width: 1.5;
+      }
+      .filter-pill .check::after {
+        content: '  ✕';
+        font-size: 9px;
+        white-space: pre;
+      }
+      .filter-pill.active .check::after {
+        content: '  ✓';
+      }
+      .nav-item.hidden {
+        max-height: 0;
+        opacity: 0;
+        padding-top: 0;
+        padding-bottom: 0;
+        border-bottom-width: 0;
+      }
+      .media-item {
+        overflow: hidden;
+        max-height: 800px;
+        opacity: 1;
+        margin-bottom: 32px;
+        scroll-margin-top: 0;
+        transition:
+          opacity 0.3s ease-out,
+          max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1) 0.15s;
+      }
+      .media-item.hidden {
+        opacity: 0;
+        max-height: 0;
+        pointer-events: none;
+        transition:
+          opacity 0.2s ease-in,
+          max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1) 0.1s;
+      }
+      main {
+        flex: 1;
+        padding: 32px 0 48px 0;
+        min-width: 0;
+      }
+      .talk-header {
+        padding: 32px 32px 16px;
+      }
+      .media-item h2 {
+        font-size: 14px;
+        font-weight: 400;
+        margin-bottom: 4px;
+      }
+      .media-item .meta {
+        color: #888;
+        font-size: 12px;
+      }
+      .video-container {
+        position: relative;
+        padding-bottom: 56.25%;
+        height: 0;
+        overflow: hidden;
+        background: #000;
+        cursor: pointer;
+      }
+      .video-container iframe {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        border: 0;
+      }
+      .video-thumbnail {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+      .video-play-btn {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 72px;
+        height: 72px;
+        background: rgba(0, 0, 0, 0.7);
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: background 0.2s ease, transform 0.2s ease;
+      }
+      .video-container:hover .video-play-btn {
+        background: rgba(0, 0, 0, 0.9);
+        transform: translate(-50%, -50%) scale(1.1);
+      }
+      .video-play-btn svg {
+        width: 28px;
+        height: 28px;
+        fill: #fff;
+        margin-left: 4px;
+      }
+      /* Writing cards */
+      .writing-card {
+        display: block;
+        margin: 0 32px;
+        padding: 48px;
+        border-radius: 12px;
+        text-decoration: none;
+        color: #222;
+        background: linear-gradient(145deg, #f8f8f8 0%, #f0f0f0 50%, #e8e8e8 100%);
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+      }
+      .writing-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+      }
+      .writing-card .card-label {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-bottom: 16px;
+        color: #888;
+      }
+      .writing-card h2 {
+        font-size: 22px;
+        font-weight: 500;
+        line-height: 1.3;
+        margin-bottom: 12px;
+      }
+      .writing-card .card-subtitle {
+        font-size: 14px;
+        line-height: 1.6;
+        color: #555;
+        margin-bottom: 24px;
+      }
+      .writing-card .card-cta {
+        font-size: 13px;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        color: #666;
+        transition: color 0.15s ease;
+      }
+      .writing-card:hover .card-cta {
+        color: #333;
+      }
+      .writing-card .card-cta svg {
+        width: 14px;
+        height: 14px;
+        fill: currentColor;
+      }
+      /* Card variants - subtle gradient shifts */
+      .writing-card.variant-blue {
+        background: linear-gradient(160deg, #fafafa 0%, #f2f2f2 40%, #eaeaea 100%);
+      }
+      .writing-card.variant-green {
+        background: linear-gradient(135deg, #f6f6f6 0%, #efefef 60%, #e6e6e6 100%);
+      }
+      .writing-card.variant-purple {
+        background: linear-gradient(170deg, #f9f9f9 0%, #f1f1f1 50%, #e9e9e9 100%);
+      }
+      @media (max-width: 768px) {
+        .writing-card {
+          margin: 0 16px;
+          padding: 32px;
+        }
+        .writing-card h2 {
+          font-size: 20px;
+        }
+      }
+      .mobile-dropdown {
+        display: none;
+      }
+      @media (max-width: 768px) {
+        .container {
+          flex-direction: column;
+        }
+        nav {
+          width: 100%;
+          height: auto;
+          position: static;
+          border-right: none;
+          border-bottom: 1px solid #e5e5e5;
+          max-height: none;
+          overflow: visible;
+          padding: 20px 0;
+        }
+        .nav-header {
+          padding: 0 16px 16px;
+          border-bottom: none;
+        }
+        #talk-list {
+          display: none;
+        }
+        .back {
+          display: none;
+        }
+        .mobile-dropdown {
+          display: block;
+        }
+        .mobile-dropdown-trigger {
+          width: 100%;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 14px 16px;
+          font-size: 14px;
+          font-family: inherit;
+          color: #666;
+          background: #fff;
+          border: none;
+          border-top: 1px solid #e5e5e5;
+          border-bottom: 1px solid #e5e5e5;
+          cursor: pointer;
+          text-align: left;
+        }
+        .mobile-dropdown-trigger svg {
+          width: 12px;
+          height: 12px;
+          fill: none;
+          stroke: #999;
+          stroke-width: 2;
+          transition: transform 0.2s ease;
+        }
+        .mobile-dropdown.open .mobile-dropdown-trigger svg {
+          transform: rotate(180deg);
+        }
+        .mobile-dropdown-list {
+          display: none;
+          max-height: 60vh;
+          overflow-y: auto;
+          background: #fafafa;
+          border-bottom: 1px solid #e5e5e5;
+        }
+        .mobile-dropdown.open .mobile-dropdown-list {
+          display: block;
+        }
+        .mobile-dropdown-item {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          padding: 12px 16px;
+          cursor: pointer;
+          border-bottom: 1px solid #e5e5e5;
+          gap: 12px;
+          background: #fafafa;
+          transition: background-color 0.1s ease;
+        }
+        .mobile-dropdown-item:last-child {
+          border-bottom: none;
+        }
+        .mobile-dropdown-item:active {
+          background: #f0f0f0;
+        }
+        .mobile-dropdown-item .item-content {
+          flex: 1;
+          min-width: 0;
+        }
+        .mobile-dropdown-item .item-title {
+          color: #000;
+          font-size: 13px;
+          line-height: 1.4;
+          display: block;
+        }
+        .mobile-dropdown-item .item-meta {
+          color: #888;
+          font-size: 11px;
+          margin-top: 2px;
+          display: block;
+        }
+        .mobile-dropdown-item .type-icon {
+          display: inline-flex;
+          align-items: center;
+          vertical-align: middle;
+          margin-right: 4px;
+        }
+        .mobile-dropdown-item .type-icon svg {
+          width: 11px;
+          height: 11px;
+        }
+        .mobile-dropdown-item[data-type="talk"] .type-icon svg rect {
+          fill: none;
+          stroke: #888;
+          stroke-width: 1.5;
+        }
+        .mobile-dropdown-item[data-type="talk"] .type-icon svg polygon {
+          fill: #888;
+        }
+        .mobile-dropdown-item[data-type="writing"] .type-icon svg {
+          fill: none;
+          stroke: #888;
+          stroke-width: 1.5;
+        }
+        .mobile-dropdown-item[data-type="podcast"] .type-icon svg {
+          fill: none;
+          stroke: #888;
+          stroke-width: 1.5;
+        }
+        .talk-header {
+          padding: 24px 16px 12px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <nav>
+        <div class="nav-header">
+          <h1>Media</h1>
+          <div class="filter-bar">
+            <button class="filter-pill active" data-filter="talk"><span class="filter-icon"><svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="3"/><polygon points="10,8 10,16 16,12"/></svg></span>Talks<span class="check"></span></button>
+            <button class="filter-pill active" data-filter="writing"><span class="filter-icon"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="14" y2="17"/></svg></span>Writing<span class="check"></span></button>
+            <button class="filter-pill active" data-filter="podcast"><span class="filter-icon"><svg viewBox="0 0 24 24"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3v5z"/><path d="M3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3v5z"/></svg></span>Podcasts<span class="check"></span></button>
+          </div>
+        </div>
+        <div class="mobile-dropdown" id="mobile-dropdown">
+          <button class="mobile-dropdown-trigger" id="mobile-dropdown-trigger">
+            <span>Jump to...</span>
+            <svg viewBox="0 0 12 12"><path d="M2 4l4 4 4-4"/></svg>
+          </button>
+          <div class="mobile-dropdown-list" id="mobile-dropdown-list"></div>
+        </div>
+        <ul id="talk-list">
+          <li class="nav-item" data-target="writing-2" data-type="writing">
+            <span class="nav-content"><span class="talk-title">Scroll-to-Accept?</span><span class="talk-meta"><span class="type-icon"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="14" y2="17"/></svg></span>Fin Ideas, Jan 2026, 4m read</span></span>
+          </li>
+          <li class="nav-item" data-target="talk-0" data-index="0" data-type="talk">
+            <span class="nav-content"><span class="talk-title">When Designers Start Shipping Real Code</span><span class="talk-meta"><span class="type-icon"><svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="3"/><polygon points="10,8 10,16 16,12"/></svg></span>Hatch Conference, Sep 2025, 32m</span></span>
+          </li>
+          <li class="nav-item" data-target="writing-0" data-type="writing">
+            <span class="nav-content"><span class="talk-title">A Tale of Two Agent Builders</span><span class="talk-meta"><span class="type-icon"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="14" y2="17"/></svg></span>Fin Ideas, Oct 2025, 5m read</span></span>
+          </li>
+          <li class="nav-item" data-target="writing-1" data-type="writing">
+            <span class="nav-content"><span class="talk-title">Intercom's 3-Point Framework for AI-Driven Design</span><span class="talk-meta"><span class="type-icon"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="14" y2="17"/></svg></span>Fin Ideas, Oct 2025, 6m read</span></span>
+          </li>
+          <li class="nav-item" data-target="talk-1" data-index="1" data-type="podcast">
+            <span class="nav-content"><span class="talk-title">The State of AI in 2025</span><span class="talk-meta"><span class="type-icon"><svg viewBox="0 0 24 24"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3v5z"/><path d="M3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3v5z"/></svg></span>Intercom, Sep 2025, 61m</span></span>
+          </li>
+          <li class="nav-item" data-target="talk-2" data-index="2" data-type="podcast">
+            <span class="nav-content"><span class="talk-title">Transitioning into the Next Era of Design</span><span class="talk-meta"><span class="type-icon"><svg viewBox="0 0 24 24"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3v5z"/><path d="M3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3v5z"/></svg></span>Dive Club, Jun 2025, 64m</span></span>
+          </li>
+          <li class="nav-item" data-target="talk-3" data-index="3" data-type="podcast">
+            <span class="nav-content"><span class="talk-title">Why Old UI Designs Won't Work with AI</span><span class="talk-meta"><span class="type-icon"><svg viewBox="0 0 24 24"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3v5z"/><path d="M3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3v5z"/></svg></span>Off Script, Jul 2024, 23m</span></span>
+          </li>
+          <li class="nav-item" data-target="talk-4" data-index="4" data-type="podcast">
+            <span class="nav-content"><span class="talk-title">How to Design Standout Products in an AI World</span><span class="talk-meta"><span class="type-icon"><svg viewBox="0 0 24 24"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3v5z"/><path d="M3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3v5z"/></svg></span>Intercom, Feb 2024, 25m</span></span>
+          </li>
+          <li class="nav-item" data-target="talk-5" data-index="5" data-type="podcast">
+            <span class="nav-content"><span class="talk-title">Riding the AI Wave in 2024</span><span class="talk-meta"><span class="type-icon"><svg viewBox="0 0 24 24"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3v5z"/><path d="M3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3v5z"/></svg></span>Intercom on Product, Jan 2024, 56m</span></span>
+          </li>
+          <li class="nav-item" data-target="talk-8" data-index="8" data-type="talk">
+            <span class="nav-content"><span class="talk-title">From Visual Design to Vision Design</span><span class="talk-meta"><span class="type-icon"><svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="3"/><polygon points="10,8 10,16 16,12"/></svg></span>UXDX, Oct 2023, 34m</span></span>
+          </li>
+          <li class="nav-item" data-target="talk-6" data-index="6" data-type="podcast">
+            <span class="nav-content"><span class="talk-title">The Emergence of Superintelligent AI</span><span class="talk-meta"><span class="type-icon"><svg viewBox="0 0 24 24"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3v5z"/><path d="M3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3v5z"/></svg></span>Intercom, Aug 2023, 55m</span></span>
+          </li>
+          <li class="nav-item" data-target="talk-7" data-index="7" data-type="podcast">
+            <span class="nav-content"><span class="talk-title">From Science Fiction to Reality: Exploring the Potential of LLMs</span><span class="talk-meta"><span class="type-icon"><svg viewBox="0 0 24 24"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3v5z"/><path d="M3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3v5z"/></svg></span>Intercom, Jun 2023, 63m</span></span>
+          </li>
+          <li class="nav-item" data-target="talk-9" data-index="9" data-type="talk">
+            <span class="nav-content"><span class="talk-title">The Tools We Use</span><span class="talk-meta"><span class="type-icon"><svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="3"/><polygon points="10,8 10,16 16,12"/></svg></span>UXDX, Oct 2019, 33m</span></span>
+          </li>
+          <li class="nav-item" data-target="talk-10" data-index="10" data-type="talk">
+            <span class="nav-content"><span class="talk-title">Designing in Interesting Times</span><span class="talk-meta"><span class="type-icon"><svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="3"/><polygon points="10,8 10,16 16,12"/></svg></span>Intercom World Tour, Aug 2018, 25m</span></span>
+          </li>
+          <li class="nav-item" data-target="talk-11" data-index="11" data-type="talk">
+            <span class="nav-content"><span class="talk-title">Curiosity</span><span class="talk-meta"><span class="type-icon"><svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="3"/><polygon points="10,8 10,16 16,12"/></svg></span>CreativeMornings, Feb 2018, 35m</span></span>
+          </li>
+          <li class="nav-item" data-target="talk-12" data-index="12" data-type="talk">
+            <span class="nav-content"><span class="talk-title">Design in the Age of Entanglement</span><span class="talk-meta"><span class="type-icon"><svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="3"/><polygon points="10,8 10,16 16,12"/></svg></span>Inside Intercom Amsterdam, May 2016, 36m</span></span>
+          </li>
+          <li class="nav-item" data-target="talk-13" data-index="13" data-type="talk">
+            <span class="nav-content"><span class="talk-title">Designing for Wearables</span><span class="talk-meta"><span class="type-icon"><svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="3"/><polygon points="10,8 10,16 16,12"/></svg></span>Google I/O, Jun 2014, 46m</span></span>
+          </li>
+        </ul>
+        <p class="back"><a href="/">&larr; Back</a></p>
+      </nav>
+      <main>
+        <article class="media-item" id="writing-2">
+          <a href="https://ideas.fin.ai/p/scroll-to-accept" target="_blank" class="writing-card variant-purple">
+            <div class="card-content">
+              <p class="card-label">Fin Ideas, Jan 2026</p>
+              <h2>Scroll-to-Accept?</h2>
+              <p class="card-subtitle">The interaction patterns we invent today will shape how humans think alongside AI for decades. What might scroll-to-accept teach us—or take from us?</p>
+              <span class="card-cta">Read on Substack <svg viewBox="0 0 24 24"><path d="M7 17L17 7M17 7H7M17 7V17" stroke="currentColor" stroke-width="2" fill="none"/></svg></span>
+            </div>
+          </a>
+        </article>
+
+        <article class="media-item" id="talk-0">
+          <div class="talk-header">
+            <h2>When Designers Start Shipping Real Code</h2>
+            <p class="meta">Hatch Conference, Sep 2025</p>
+          </div>
+          <div class="video-container" data-index="0">
+            <img class="video-thumbnail" src="https://img.youtube.com/vi/_acdhjOLvBs/maxresdefault.jpg" alt="">
+            <div class="video-play-btn"><svg viewBox="0 0 24 24"><polygon points="5,3 19,12 5,21"/></svg></div>
+          </div>
+        </article>
+
+        <article class="media-item" id="writing-0">
+          <a href="https://ideas.fin.ai/p/a-tale-of-two-agent-builders" target="_blank" class="writing-card variant-blue">
+            <div class="card-content">
+              <p class="card-label">Fin Ideas, Oct 2025</p>
+              <h2>A Tale of Two Agent Builders</h2>
+              <p class="card-subtitle">Comparing OpenAI's canvas-based Agent Builder with Intercom's document-based Procedures—two philosophically opposite approaches to building AI agents.</p>
+              <span class="card-cta">Read on Substack <svg viewBox="0 0 24 24"><path d="M7 17L17 7M17 7H7M17 7V17" stroke="currentColor" stroke-width="2" fill="none"/></svg></span>
+            </div>
+          </a>
+        </article>
+
+        <article class="media-item" id="writing-1">
+          <a href="https://ideas.fin.ai/p/intercoms-3-point-framework-for-ai" target="_blank" class="writing-card variant-green">
+            <div class="card-content">
+              <p class="card-label">Fin Ideas, Oct 2025</p>
+              <h2>Intercom's 3-Point Framework for AI-Driven Design</h2>
+              <p class="card-subtitle">How we're expanding design's role at Intercom: designers shipping code, vibe-coded prototypes influencing roadmaps, and pushing the frontiers of what designers can do.</p>
+              <span class="card-cta">Read on Substack <svg viewBox="0 0 24 24"><path d="M7 17L17 7M17 7H7M17 7V17" stroke="currentColor" stroke-width="2" fill="none"/></svg></span>
+            </div>
+          </a>
+        </article>
+
+        <article class="media-item" id="talk-1">
+          <div class="talk-header">
+            <h2>The State of AI in 2025</h2>
+            <p class="meta">Intercom, Sep 2025</p>
+          </div>
+          <div class="video-container" data-index="1">
+            <img class="video-thumbnail" src="https://img.youtube.com/vi/8ISy0PswHvE/maxresdefault.jpg" alt="">
+            <div class="video-play-btn"><svg viewBox="0 0 24 24"><polygon points="5,3 19,12 5,21"/></svg></div>
+          </div>
+        </article>
+
+        <article class="media-item" id="talk-2">
+          <div class="talk-header">
+            <h2>Transitioning into the Next Era of Design</h2>
+            <p class="meta">Dive Club, Jun 2025</p>
+          </div>
+          <div class="video-container" data-index="2">
+            <img class="video-thumbnail" src="https://img.youtube.com/vi/rRljig2AS0g/maxresdefault.jpg" alt="">
+            <div class="video-play-btn"><svg viewBox="0 0 24 24"><polygon points="5,3 19,12 5,21"/></svg></div>
+          </div>
+        </article>
+
+        <article class="media-item" id="talk-3">
+          <div class="talk-header">
+            <h2>Why Old UI Designs Won't Work with AI</h2>
+            <p class="meta">Off Script, Jul 2024</p>
+          </div>
+          <div class="video-container" data-index="3">
+            <img class="video-thumbnail" src="https://img.youtube.com/vi/I8hMPj3AD34/maxresdefault.jpg" alt="">
+            <div class="video-play-btn"><svg viewBox="0 0 24 24"><polygon points="5,3 19,12 5,21"/></svg></div>
+          </div>
+        </article>
+
+        <article class="media-item" id="talk-4">
+          <div class="talk-header">
+            <h2>How to Design Standout Products in an AI World</h2>
+            <p class="meta">Intercom, Feb 2024</p>
+          </div>
+          <div class="video-container" data-index="4">
+            <img class="video-thumbnail" src="https://img.youtube.com/vi/rc1WGS8QNeI/maxresdefault.jpg" alt="">
+            <div class="video-play-btn"><svg viewBox="0 0 24 24"><polygon points="5,3 19,12 5,21"/></svg></div>
+          </div>
+        </article>
+
+        <article class="media-item" id="talk-5">
+          <div class="talk-header">
+            <h2>Riding the AI Wave in 2024</h2>
+            <p class="meta">Intercom on Product, Jan 2024</p>
+          </div>
+          <div class="video-container" data-index="5">
+            <img class="video-thumbnail" src="https://img.youtube.com/vi/bLix8mAp5k8/maxresdefault.jpg" alt="">
+            <div class="video-play-btn"><svg viewBox="0 0 24 24"><polygon points="5,3 19,12 5,21"/></svg></div>
+          </div>
+        </article>
+
+        <article class="media-item" id="talk-8">
+          <div class="talk-header">
+            <h2>From Visual Design to Vision Design</h2>
+            <p class="meta">UXDX, Oct 2023</p>
+          </div>
+          <div class="video-container" data-index="8">
+            <img class="video-thumbnail" src="https://img.youtube.com/vi/qfXAhADMF2g/hqdefault.jpg" alt="">
+            <div class="video-play-btn"><svg viewBox="0 0 24 24"><polygon points="5,3 19,12 5,21"/></svg></div>
+          </div>
+        </article>
+
+        <article class="media-item" id="talk-6">
+          <div class="talk-header">
+            <h2>The Emergence of Superintelligent AI</h2>
+            <p class="meta">Intercom, Aug 2023</p>
+          </div>
+          <div class="video-container" data-index="6">
+            <img class="video-thumbnail" src="https://img.youtube.com/vi/KYBQzO2u1Xs/maxresdefault.jpg" alt="">
+            <div class="video-play-btn"><svg viewBox="0 0 24 24"><polygon points="5,3 19,12 5,21"/></svg></div>
+          </div>
+        </article>
+
+        <article class="media-item" id="talk-7">
+          <div class="talk-header">
+            <h2>From Science Fiction to Reality: Exploring the Potential of LLMs</h2>
+            <p class="meta">Intercom, Jun 2023</p>
+          </div>
+          <div class="video-container" data-index="7">
+            <img class="video-thumbnail" src="https://img.youtube.com/vi/G8W6YqDsjhg/maxresdefault.jpg" alt="">
+            <div class="video-play-btn"><svg viewBox="0 0 24 24"><polygon points="5,3 19,12 5,21"/></svg></div>
+          </div>
+        </article>
+
+        <article class="media-item" id="talk-9">
+          <div class="talk-header">
+            <h2>The Tools We Use</h2>
+            <p class="meta">UXDX, Oct 2019</p>
+          </div>
+          <div class="video-container" data-index="9">
+            <img class="video-thumbnail" src="https://img.youtube.com/vi/DYhoIYUlKl4/hqdefault.jpg" alt="">
+            <div class="video-play-btn"><svg viewBox="0 0 24 24"><polygon points="5,3 19,12 5,21"/></svg></div>
+          </div>
+        </article>
+
+        <article class="media-item" id="talk-10">
+          <div class="talk-header">
+            <h2>Designing in Interesting Times</h2>
+            <p class="meta">Intercom World Tour, Aug 2018</p>
+          </div>
+          <div class="video-container" data-index="10">
+            <img class="video-thumbnail" src="https://img.youtube.com/vi/pzC0o3uj-fM/maxresdefault.jpg" alt="">
+            <div class="video-play-btn"><svg viewBox="0 0 24 24"><polygon points="5,3 19,12 5,21"/></svg></div>
+          </div>
+        </article>
+
+        <article class="media-item" id="talk-11">
+          <div class="talk-header">
+            <h2>Curiosity</h2>
+            <p class="meta">CreativeMornings, Feb 2018</p>
+          </div>
+          <div class="video-container" data-index="11">
+            <img class="video-thumbnail" src="https://img.youtube.com/vi/m0JQtApZBJw/maxresdefault.jpg" alt="">
+            <div class="video-play-btn"><svg viewBox="0 0 24 24"><polygon points="5,3 19,12 5,21"/></svg></div>
+          </div>
+        </article>
+
+        <article class="media-item" id="talk-12">
+          <div class="talk-header">
+            <h2>Design in the Age of Entanglement</h2>
+            <p class="meta">Inside Intercom Amsterdam, May 2016</p>
+          </div>
+          <div class="video-container" data-index="12">
+            <img class="video-thumbnail" src="https://img.youtube.com/vi/ouIdkokhwAg/maxresdefault.jpg" alt="">
+            <div class="video-play-btn"><svg viewBox="0 0 24 24"><polygon points="5,3 19,12 5,21"/></svg></div>
+          </div>
+        </article>
+
+        <article class="media-item" id="talk-13">
+          <div class="talk-header">
+            <h2>Designing for Wearables</h2>
+            <p class="meta">Google I/O, Jun 2014</p>
+          </div>
+          <div class="video-container" data-index="13">
+            <img class="video-thumbnail" src="https://img.youtube.com/vi/ea_KCJ2qy6s/maxresdefault.jpg" alt="">
+            <div class="video-play-btn"><svg viewBox="0 0 24 24"><polygon points="5,3 19,12 5,21"/></svg></div>
+          </div>
+        </article>
+      </main>
+    </div>
+
+    <script>
+      const videoIds = [
+        '_acdhjOLvBs', '8ISy0PswHvE', 'rRljig2AS0g', 'I8hMPj3AD34',
+        'rc1WGS8QNeI', 'bLix8mAp5k8', 'KYBQzO2u1Xs', 'G8W6YqDsjhg',
+        'qfXAhADMF2g', 'DYhoIYUlKl4', 'pzC0o3uj-fM', 'm0JQtApZBJw',
+        'ouIdkokhwAg', 'ea_KCJ2qy6s',
+      ];
+
+      const players = [];
+      let currentlyPlaying = null;
+      let apiReady = false;
+
+      const playIcon = '<svg viewBox="0 0 24 24"><polygon points="5,3 19,12 5,21"/></svg>';
+      const pauseIcon = '<svg viewBox="0 0 24 24"><rect x="5" y="3" width="4" height="18"/><rect x="15" y="3" width="4" height="18"/></svg>';
+
+      // Load YouTube API
+      const tag = document.createElement('script');
+      tag.src = 'https://www.youtube.com/iframe_api';
+      const firstScript = document.getElementsByTagName('script')[0];
+      firstScript.parentNode.insertBefore(tag, firstScript);
+
+      function onYouTubeIframeAPIReady() {
+        apiReady = true;
+      }
+
+      function loadPlayer(index, autoplay = true) {
+        const container = document.querySelector(`.video-container[data-index="${index}"]`);
+        if (!container || players[index]) return;
+
+        // Clear thumbnail
+        container.innerHTML = `<div id="player-${index}"></div>`;
+        container.style.cursor = 'default';
+
+        players[index] = new YT.Player(`player-${index}`, {
+          videoId: videoIds[index],
+          playerVars: {
+            modestbranding: 1,
+            rel: 0,
+            autoplay: autoplay ? 1 : 0,
+          },
+          events: {
+            onStateChange: (event) => onPlayerStateChange(event, index),
+            onReady: (event) => {
+              if (autoplay) event.target.playVideo();
+            },
+          },
+        });
+      }
+
+      function onPlayerStateChange(event, index) {
+        if (event.data === YT.PlayerState.PLAYING) {
+          if (currentlyPlaying !== null && currentlyPlaying !== index && players[currentlyPlaying]) {
+            players[currentlyPlaying].pauseVideo();
+          }
+          currentlyPlaying = index;
+          updateNavState(index, true);
+        } else if (event.data === YT.PlayerState.PAUSED || event.data === YT.PlayerState.ENDED) {
+          if (currentlyPlaying === index) {
+            updateNavState(index, false);
+            if (event.data === YT.PlayerState.ENDED) {
+              currentlyPlaying = null;
+            }
+          }
+        }
+      }
+
+      function updateNavState(index, isPlaying) {
+        document.querySelectorAll('.nav-item').forEach((item, i) => {
+          const icon = item.querySelector('.play-icon');
+          if (i === index && isPlaying) {
+            item.classList.add('playing', 'active');
+            icon.innerHTML = pauseIcon;
+          } else {
+            item.classList.remove('playing');
+            if (i !== index) item.classList.remove('active');
+            icon.innerHTML = playIcon;
+          }
+        });
+      }
+
+      function playVideo(index) {
+        if (!apiReady) return;
+
+        // Stop current video if different
+        if (currentlyPlaying !== null && currentlyPlaying !== index && players[currentlyPlaying]) {
+          players[currentlyPlaying].pauseVideo();
+        }
+
+        if (players[index]) {
+          const state = players[index].getPlayerState();
+          if (state === YT.PlayerState.PLAYING) {
+            players[index].pauseVideo();
+          } else {
+            players[index].playVideo();
+          }
+        } else {
+          loadPlayer(index, true);
+        }
+      }
+
+      // Click on thumbnail to play
+      document.querySelectorAll('.video-container').forEach((container) => {
+        container.addEventListener('click', () => {
+          const index = parseInt(container.dataset.index);
+          if (!players[index]) {
+            loadPlayer(index, true);
+          }
+        });
+      });
+
+      // Click on nav item to scroll and play
+      document.querySelectorAll('.nav-item').forEach((item) => {
+        item.addEventListener('click', () => {
+          const target = document.getElementById(item.dataset.target);
+          const type = item.dataset.type;
+
+          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+          // Only auto-play for video items (talks/podcasts)
+          if (type !== 'writing') {
+            const index = parseInt(item.dataset.index);
+            setTimeout(() => {
+              playVideo(index);
+            }, 400);
+          }
+        });
+      });
+
+      // Multi-filter system
+      const filters = {
+        talk: true,
+        podcast: true,
+        writing: true,
+      };
+
+      function applyFilters() {
+        const navItems = document.querySelectorAll('.nav-item');
+        const mediaItems = document.querySelectorAll('.media-item');
+
+        // Stagger nav items
+        let navDelay = 0;
+        navItems.forEach((item) => {
+          const type = item.dataset.type;
+          const shouldShow = filters[type];
+          const isCurrentlyHidden = item.classList.contains('hidden');
+
+          if (shouldShow !== !isCurrentlyHidden) {
+            setTimeout(() => {
+              item.classList.toggle('hidden', !shouldShow);
+            }, navDelay);
+            navDelay += 15; // 15ms stagger
+          }
+        });
+
+        // Stagger main content items
+        let mediaDelay = 0;
+        mediaItems.forEach((item) => {
+          const navItem = document.querySelector(`.nav-item[data-target="${item.id}"]`);
+          if (navItem) {
+            const type = navItem.dataset.type;
+            const shouldShow = filters[type];
+            const isCurrentlyHidden = item.classList.contains('hidden');
+
+            if (shouldShow !== !isCurrentlyHidden) {
+              setTimeout(() => {
+                item.classList.toggle('hidden', !shouldShow);
+              }, mediaDelay);
+              mediaDelay += 30; // 30ms stagger for larger items
+            }
+          }
+        });
+      }
+
+      document.querySelectorAll('.filter-pill').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const filterType = btn.dataset.filter;
+          filters[filterType] = !filters[filterType];
+          btn.classList.toggle('active', filters[filterType]);
+          applyFilters();
+          updateMobileDropdown();
+        });
+      });
+
+      // Mobile dropdown
+      const mobileDropdown = document.getElementById('mobile-dropdown');
+      const mobileDropdownTrigger = document.getElementById('mobile-dropdown-trigger');
+      const mobileDropdownList = document.getElementById('mobile-dropdown-list');
+
+      const youtubeIconSvg = '<svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="3"/><polygon points="10,8 10,16 16,12"/></svg>';
+      const docIconSvg = '<svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="14" y2="17"/></svg>';
+      const headphonesIconSvg = '<svg viewBox="0 0 24 24"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3v5z"/><path d="M3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3v5z"/></svg>';
+
+      function updateMobileDropdown() {
+        mobileDropdownList.innerHTML = '';
+
+        document.querySelectorAll('.nav-item').forEach((item) => {
+          const type = item.dataset.type;
+          if (filters[type]) {
+            const div = document.createElement('div');
+            div.className = 'mobile-dropdown-item';
+            div.dataset.target = item.dataset.target;
+            div.dataset.type = type;
+            if (item.dataset.index) div.dataset.index = item.dataset.index;
+
+            const title = item.querySelector('.talk-title').textContent;
+            const meta = item.querySelector('.talk-meta').textContent;
+            let icon;
+            if (type === 'writing') icon = docIconSvg;
+            else if (type === 'podcast') icon = headphonesIconSvg;
+            else icon = youtubeIconSvg;
+
+            div.innerHTML = `
+              <span class="item-content">
+                <span class="item-title">${title}</span>
+                <span class="item-meta"><span class="type-icon">${icon}</span>${meta}</span>
+              </span>
+            `;
+
+            div.addEventListener('click', () => {
+              const target = document.getElementById(div.dataset.target);
+              if (target) {
+                mobileDropdown.classList.remove('open');
+                target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+                if (type !== 'writing') {
+                  const index = parseInt(div.dataset.index);
+                  setTimeout(() => {
+                    playVideo(index);
+                  }, 400);
+                }
+              }
+            });
+
+            mobileDropdownList.appendChild(div);
+          }
+        });
+      }
+
+      mobileDropdownTrigger.addEventListener('click', () => {
+        mobileDropdown.classList.toggle('open');
+      });
+
+      // Close dropdown when clicking outside
+      document.addEventListener('click', (e) => {
+        if (!mobileDropdown.contains(e.target)) {
+          mobileDropdown.classList.remove('open');
+        }
+      });
+
+      // Initialize dropdown
+      updateMobileDropdown();
+    </script>
+  </body>
+</html>
