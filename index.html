@@ -98,15 +98,15 @@
       ].map(v => v / 16 - 0.5));
 
       const CARD_LINES = [
-        '┌────────────────────────────────┐',
-        '│                                │',
-        '│ EMMET CONNOLLY                 │',
-        '│ SVP of Design, Intercom/Fin    │',
-        '│________________________________│',
-        '│                                │',
-        '│ Email / Blog / LinkedIn / X    │',
-        '│                                │',
-        '└────────────────────────────────┘',
+        '┌──────────────────────────────────────┐',
+        '│                                      │',
+        '│ EMMET CONNOLLY                       │',
+        '│ SVP of Design, Intercom/Fin          │',
+        '│______________________________________│',
+        '│                                      │',
+        '│ blog / media / email / linkedin / x  │',
+        '│                                      │',
+        '└──────────────────────────────────────┘',
       ];
       const CARD = {
         lines: CARD_LINES,
@@ -137,10 +137,13 @@
       })();
 
       CARD.links = [
-        makeLink(6, 'Email', 'mailto:emmmet.connolly@gmail.com'),
-        makeLink(6, 'Blog', 'https://thoughtwax.com/'),
-        makeLink(6, 'LinkedIn', 'https://www.linkedin.com/in/emmetconnolly/recent-activity/all/'),
-        makeLink(6, 'X', 'https://x.com/thoughtwax'),
+        makeLink(3, 'Intercom', 'https://intercom.com/'),
+        makeLink(3, 'Fin', 'https://fin.ai/'),
+        makeLink(6, 'blog', 'https://thoughtwax.com/'),
+        makeLink(6, 'media', '/media/'),
+        makeLink(6, 'email', 'mailto:emmmet.connolly@gmail.com'),
+        makeLink(6, 'linkedin', 'https://www.linkedin.com/in/emmetconnolly/recent-activity/all/'),
+        makeLink(6, 'x', 'https://x.com/thoughtwax'),
       ].filter(Boolean);
 
       // ASCII Renderer
