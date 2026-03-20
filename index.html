@@ -1,823 +1,559 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Emmet Connolly / digital product designer</title>
-    <style>
-      /* Reset and fullscreen */
-      html, body {
-        height: 100%;
-        margin: 0;
-        padding: 0;
-        overflow: hidden; /* ensure no scrollbars */
-        background: black;
-      }
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Emmet Connolly / digital product designer</title>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
+    #gl { position: fixed; inset: 0; width: 100vw; height: 100vh; cursor: crosshair; touch-action: none; }
+    #linkOverlay { position: fixed; inset: 0; pointer-events: none; z-index: 1; }
+    #cardHitbox { position: absolute; pointer-events: auto; cursor: default; }
+    #linkOverlay a { position: absolute; pointer-events: auto; color: transparent; text-decoration: none; cursor: pointer; }
+  </style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="linkOverlay"><div id="cardHitbox"></div></div>
 
-      /* Container for ASCII */
-      #app {
-        position: fixed;
-        inset: 0;
-        width: 100vw;
-        height: 100vh;
-        display: grid;
-        place-items: center;
-        background: #000;
-        color: #0f0;
-        user-select: none;
-        -webkit-user-select: none;
-        -moz-user-select: none;
-        -ms-user-select: none;
-        cursor: crosshair;
-        /* Prevent page scroll/gestures interfering with drawing */
-        touch-action: none;
-        overscroll-behavior: none;
-      }
+<script>
+// ============================================================
+// CRT WebGL experiment — barrel distortion as a GPU post-process
+//
+// Pipeline:
+//   1. Fluid simulation → density field
+//   2. Density field → ASCII characters → drawn on offscreen 2D canvas
+//   3. 2D canvas → WebGL texture → barrel distortion fragment shader → screen
+//
+// Advantages over JS-level distortion:
+//   - Sub-pixel smooth: GPU bilinear filtering, no grid snapping
+//   - Chromatic aberration, scanlines, vignette all in one shader pass
+//   - Zero CPU overhead for the distortion itself
+// ============================================================
 
-      pre.ascii {
-        margin: 0;
-        position: absolute;
-        top: 0; left: 0; right: 0; bottom: 0;
-        width: 100vw;
-        height: 100vh;
-        font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-        font-size: 12px; /* will be adjusted dynamically */
-        line-height: 1.0; /* tighter for better aspect control */
-        letter-spacing: 0px;
-        white-space: pre;
-        color: #d0f8d0;
-        touch-action: none;
-      }
+// ---- Utility: measure monospace character cell ----
+function measureCell(px) {
+  const s = document.createElement('span');
+  s.textContent = 'M';
+  s.style.cssText = `font:${px}px "JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;line-height:1;position:absolute;visibility:hidden`;
+  document.body.appendChild(s);
+  const r = s.getBoundingClientRect();
+  s.remove();
+  return { w: r.width, h: r.height };
+}
 
-      #cardOverlay {
-        position: absolute;
-        pointer-events: none;
-        color: #d0f8d0;
-        font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-        font-size: 12px;
-        line-height: 1;
-        display: none;
-      }
-      #cardOverlay a {
-        position: absolute;
-        text-decoration: underline;
-        color: inherit;
-        pointer-events: auto;
-      }
-    </style>
-  </head>
-  <body>
-    <div id="app">
-      <pre id="ascii" class="ascii">Loading…</pre>
-      <div id="cardOverlay" aria-hidden="true"></div>
-      <!-- Business card glyphs are rendered directly within the ASCII grid -->
-    </div>
+// ---- Constants ----
+const DENSITY_CHARSET = ' .:-=+*#%@';
+const DISSIPATION = 0.994;
+const AUTO_MOTION_DEPOSIT = 0.15;
 
-    <script>
-      // Utility: measure monospace character cell
-      function measureCell(fontSizePx) {
-        const span = document.createElement('span');
-        span.textContent = 'M';
-        span.style.fontFamily = '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
-        span.style.fontSize = fontSizePx + 'px';
-        span.style.lineHeight = '1.0';
-        span.style.position = 'absolute';
-        span.style.visibility = 'hidden';
-        document.body.appendChild(span);
-        const rect = span.getBoundingClientRect();
-        span.remove();
-        return { w: rect.width, h: rect.height };
-      }
+const CARD_LINES = [
+  '\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510',
+  '\u2502                                      \u2502',
+  '\u2502 EMMET CONNOLLY                       \u2502',
+  '\u2502 SVP of Design, Intercom/Fin          \u2502',
+  '\u2502______________________________________\u2502',
+  '\u2502                                      \u2502',
+  '\u2502 blog / media / email / linkedin / x  \u2502',
+  '\u2502                                      \u2502',
+  '\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518',
+];
+const CARD = { lines: CARD_LINES, width: CARD_LINES[0].length, height: CARD_LINES.length };
 
-      // 4×4 Bayer matrix for ordered dithering (values centered around zero)
-      const BAYER4 = new Float32Array([
-        0,  8,  2, 10,
-        12, 4, 14, 6,
-        3, 11, 1,  9,
-        15, 7, 13, 5,
-      ].map(v => v / 16 - 0.5));
+const CARD_LINKS = [
+  { text: 'Intercom', line: 3, url: 'https://intercom.com/' },
+  { text: 'Fin', line: 3, url: 'https://fin.ai/' },
+  { text: 'blog', line: 6, url: 'https://thoughtwax.com/' },
+  { text: 'media', line: 6, url: '/media/' },
+  { text: 'email', line: 6, url: 'mailto:emmmet.connolly@gmail.com' },
+  { text: 'linkedin', line: 6, url: 'https://www.linkedin.com/in/emmetconnolly/recent-activity/all/' },
+  { text: 'x', line: 6, url: 'https://x.com/thoughtwax' },
+].map(l => {
+  const start = CARD_LINES[l.line].indexOf(l.text);
+  return start >= 0 ? { ...l, start, length: l.text.length, el: null } : null;
+}).filter(Boolean);
 
-      const CARD_LINES = [
-        '┌──────────────────────────────────────┐',
-        '│                                      │',
-        '│ EMMET CONNOLLY                       │',
-        '│ SVP of Design, Intercom/Fin          │',
-        '│______________________________________│',
-        '│                                      │',
-        '│ blog / media / email / linkedin / x  │',
-        '│                                      │',
-        '└──────────────────────────────────────┘',
-      ];
-      const CARD = {
-        lines: CARD_LINES,
-        width: CARD_LINES[0].length,
-        height: CARD_LINES.length,
-      };
-      function makeLink(lineIndex, text, url) {
-        const line = CARD.lines[lineIndex];
-        if (!line) return null;
-        const start = line.indexOf(text);
-        if (start < 0) return null;
-        return {
-          url,
-          line: lineIndex,
-          start,
-          length: text.length,
-          text,
-        };
-      }
+// ---- Fluid simulation (Stam 1999) ----
+class Fluid {
+  constructor(nx, ny, diff = 0.00005, visc = 0.00005, iter = 12) {
+    this.diff = diff; this.visc = visc; this.iter = iter; this.dt = 1/60;
+    this.setSize(nx, ny);
+  }
+  setSize(nx, ny) {
+    this.nx = Math.max(8, nx|0); this.ny = Math.max(8, ny|0);
+    const N = (this.nx+2)*(this.ny+2);
+    this.s = new Float32Array(N); this.d = new Float32Array(N);
+    this.Vx = new Float32Array(N); this.Vy = new Float32Array(N);
+    this.Vx0 = new Float32Array(N); this.Vy0 = new Float32Array(N);
+  }
+  IX(x,y) { return x+(this.nx+2)*y; }
+  addDensity(x,y,a) { if(x<1||x>this.nx||y<1||y>this.ny)return; this.d[this.IX(x,y)]+=a; }
+  addVelocity(x,y,ax,ay) { if(x<1||x>this.nx||y<1||y>this.ny)return; const i=this.IX(x,y); this.Vx[i]+=ax; this.Vy[i]+=ay; }
+  step() {
+    const N=this.nx, M=this.ny, dt=this.dt;
+    this.diffuse(1,this.Vx0,this.Vx,this.visc,dt,N,M);
+    this.diffuse(2,this.Vy0,this.Vy,this.visc,dt,N,M);
+    this.project(this.Vx0,this.Vy0,this.Vx,this.Vy,N,M);
+    this.advect(1,this.Vx,this.Vx0,this.Vx0,this.Vy0,dt,N,M);
+    this.advect(2,this.Vy,this.Vy0,this.Vx0,this.Vy0,dt,N,M);
+    this.project(this.Vx,this.Vy,this.Vx0,this.Vy0,N,M);
+    this.diffuse(0,this.s,this.d,this.diff,dt,N,M);
+    this.advect(0,this.d,this.s,this.Vx,this.Vy,dt,N,M);
+  }
+  set_bnd(b,x,N,M) {
+    for(let i=1;i<=N;i++){x[this.IX(i,0)]=b===2?-x[this.IX(i,1)]:x[this.IX(i,1)];x[this.IX(i,M+1)]=b===2?-x[this.IX(i,M)]:x[this.IX(i,M)];}
+    for(let j=1;j<=M;j++){x[this.IX(0,j)]=b===1?-x[this.IX(1,j)]:x[this.IX(1,j)];x[this.IX(N+1,j)]=b===1?-x[this.IX(N,j)]:x[this.IX(N,j)];}
+    x[this.IX(0,0)]=0.5*(x[this.IX(1,0)]+x[this.IX(0,1)]);
+    x[this.IX(0,M+1)]=0.5*(x[this.IX(1,M+1)]+x[this.IX(0,M)]);
+    x[this.IX(N+1,0)]=0.5*(x[this.IX(N,0)]+x[this.IX(N+1,1)]);
+    x[this.IX(N+1,M+1)]=0.5*(x[this.IX(N,M+1)]+x[this.IX(N+1,M)]);
+  }
+  lin_solve(b,x,x0,a,c,N,M) {
+    for(let k=0;k<this.iter;k++){for(let j=1;j<=M;j++){const jo=(N+2)*j;for(let i=1;i<=N;i++){x[jo+i]=(x0[jo+i]+a*(x[jo+i-1]+x[jo+i+1]+x[jo-(N+2)+i]+x[jo+(N+2)+i]))/c;}}this.set_bnd(b,x,N,M);}
+  }
+  diffuse(b,x,x0,diff,dt,N,M) { const a=dt*diff*N*M; this.lin_solve(b,x,x0,a,1+4*a,N,M); }
+  advect(b,d,d0,vx,vy,dt,N,M) {
+    const dtx=dt*N, dty=dt*M;
+    for(let j=1;j<=M;j++){for(let i=1;i<=N;i++){
+      let x=i-dtx*vx[this.IX(i,j)], y=j-dty*vy[this.IX(i,j)];
+      if(x<0.5)x=0.5;if(x>N+0.5)x=N+0.5;if(y<0.5)y=0.5;if(y>M+0.5)y=M+0.5;
+      const i0=x|0,i1=i0+1,j0=y|0,j1=j0+1,s1=x-i0,s0=1-s1,t1=y-j0,t0=1-t1;
+      d[this.IX(i,j)]=s0*(t0*d0[this.IX(i0,j0)]+t1*d0[this.IX(i0,j1)])+s1*(t0*d0[this.IX(i1,j0)]+t1*d0[this.IX(i1,j1)]);
+    }}
+    this.set_bnd(b,d,N,M);
+  }
+  project(vx,vy,p,div,N,M) {
+    for(let j=1;j<=M;j++){for(let i=1;i<=N;i++){div[this.IX(i,j)]=-0.5*((vx[this.IX(i+1,j)]-vx[this.IX(i-1,j)])/N+(vy[this.IX(i,j+1)]-vy[this.IX(i,j-1)])/M);p[this.IX(i,j)]=0;}}
+    this.set_bnd(0,div,N,M); this.set_bnd(0,p,N,M);
+    this.lin_solve(0,p,div,1,4,N,M);
+    for(let j=1;j<=M;j++){for(let i=1;i<=N;i++){vx[this.IX(i,j)]-=0.5*N*(p[this.IX(i+1,j)]-p[this.IX(i-1,j)]);vy[this.IX(i,j)]-=0.5*M*(p[this.IX(i,j+1)]-p[this.IX(i,j-1)]);}}
+    this.set_bnd(1,vx,N,M); this.set_bnd(2,vy,N,M);
+  }
+}
 
-      const CARD_NAME = (() => {
-        const lineIndex = 2;
-        const text = 'EMMET CONNOLLY';
-        const line = CARD.lines[lineIndex];
-        const start = line.indexOf(text);
-        if (start < 0) return null;
-        return { line: lineIndex, start, length: text.length, text };
-      })();
+// ---- Grid sizing ----
+let fontSize = 12;
+let cell = measureCell(fontSize);
+let cols, rows;
+const dpr = window.devicePixelRatio || 1;
 
-      CARD.links = [
-        makeLink(3, 'Intercom', 'https://intercom.com/'),
-        makeLink(3, 'Fin', 'https://fin.ai/'),
-        makeLink(6, 'blog', 'https://thoughtwax.com/'),
-        makeLink(6, 'media', '/media/'),
-        makeLink(6, 'email', 'mailto:emmmet.connolly@gmail.com'),
-        makeLink(6, 'linkedin', 'https://www.linkedin.com/in/emmetconnolly/recent-activity/all/'),
-        makeLink(6, 'x', 'https://x.com/thoughtwax'),
-      ].filter(Boolean);
+function computeGrid() {
+  const W = window.innerWidth, H = window.innerHeight;
+  const target = Math.max(80, Math.min(200, Math.floor(W / cell.w)));
+  const scale = (W / target) / cell.w;
+  fontSize = Math.max(8, Math.min(18, Math.floor(fontSize * scale)));
+  cell = measureCell(fontSize);
+  cols = Math.max(40, Math.min(240, Math.floor(W / cell.w)));
+  rows = Math.max(20, Math.min(160, Math.floor(H / cell.h)));
+}
+computeGrid();
 
-      // ASCII Renderer
-      class AsciiRenderer {
-        constructor(preEl) {
-          this.el = preEl;
-          this.fontSize = 12;
-          this.cols = 0;
-          this.rows = 0;
-          this.cell = measureCell(this.fontSize);
-          this.cardPlacement = null;
-          this.resize();
-        }
+// ---- Offscreen 2D canvas for ASCII text ----
+const textCanvas = document.createElement('canvas');
+const textCtx = textCanvas.getContext('2d');
 
-        setFontSize(px) {
-          this.fontSize = px;
-          this.el.style.fontSize = px + 'px';
-          this.cell = measureCell(px);
-          this.resize();
-        }
+function resizeTextCanvas() {
+  // Size to fill viewport at device resolution
+  textCanvas.width = Math.round(window.innerWidth * dpr);
+  textCanvas.height = Math.round(window.innerHeight * dpr);
+}
+resizeTextCanvas();
 
-        resize() {
-          const W = window.innerWidth;
-          const H = window.innerHeight;
-          // Try to choose a font size so that we fit nicely without partial cells.
-          // We constrain the number of columns to a reasonable range for performance.
-          const targetCols = Math.max(80, Math.min(200, Math.floor(W / this.cell.w)));
-          // adjust font size to fit exactly an integer number of columns
-          const colWidth = W / targetCols;
-          const scale = colWidth / this.cell.w;
-          const newFontSize = Math.max(8, Math.min(18, Math.floor(this.fontSize * scale)));
-          this.fontSize = newFontSize;
-          this.el.style.fontSize = newFontSize + 'px';
-          this.cell = measureCell(newFontSize);
-          this.cols = Math.max(40, Math.min(240, Math.floor(W / this.cell.w)));
-          this.rows = Math.max(20, Math.min(160, Math.floor(H / this.cell.h)));
-        }
+function renderTextToCanvas(asciiString) {
+  const c = textCtx;
+  const w = textCanvas.width, h = textCanvas.height;
+  // Black background + white text → avoids LCD sub-pixel fringing
+  // Shader applies the phosphor green color from the grayscale texture
+  c.fillStyle = '#000';
+  c.fillRect(0, 0, w, h);
+  c.font = `${fontSize * dpr}px "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace`;
+  c.textBaseline = 'top';
+  c.fillStyle = '#fff';
+  const lines = asciiString.split('\n');
+  const cellH = cell.h * dpr;
+  for (let y = 0; y < lines.length; y++) {
+    c.fillText(lines[y], 0, Math.round(y * cellH));
+  }
+}
 
-        renderFromScalar(field, cols, rows, charset, color, options = {}) {
-          // field expected length = cols*rows, values in [0,1]
-          const n = charset.length - 1;
-          const contrast = options.contrast ?? 1;
-          const bias = options.bias ?? 0;
-          const gamma = options.gamma ?? 1;
-          const invert = options.invert ?? false;
-          const useDither = !!options.dither;
-          const matrix = useDither ? BAYER4 : null;
-          const overlayCard = options.overlayCard ?? true;
-          const card = CARD;
-          const cardFits = overlayCard && card && card.width <= cols && card.height <= rows;
-          const cardStartX = cardFits ? Math.floor((cols - card.width) / 2) : 0;
-          const cardStartY = cardFits ? Math.floor((rows - card.height) / 2) : 0;
-          this.cardPlacement = cardFits ? { startX: cardStartX, startY: cardStartY, width: card.width, height: card.height } : null;
-          let out = '';
-          const width = cols;
-          for (let y = 0; y < rows; y++) {
-            const yo = y * width;
-            for (let x = 0; x < cols; x++) {
-          if (cardFits) {
-            const cy = y - cardStartY;
-            if (cy >= 0 && cy < card.height) {
-              const cx = x - cardStartX;
-              if (cx >= 0 && cx < card.width) {
-                out += card.lines[cy][cx];
-                continue;
-              }
-            }
-          }
-              let v = field[yo + x] * contrast + bias;
-              if (v < 0) v = 0;
-              else if (v > 1) v = 1;
-              if (gamma !== 1 && v > 0) v = Math.pow(v, gamma);
-              if (useDither) {
-                const threshold = matrix[((y & 3) << 2) + (x & 3)];
-                const mapped = invert ? 1 - v : v;
-                let idxFloat = mapped * (n + 1) + threshold;
-                let idx = Math.floor(idxFloat);
-                if (idx < 0) idx = 0;
-                else if (idx > n) idx = n;
-                out += charset[idx];
-              } else {
-                const mapped = invert ? 1 - v : v;
-                const idx = Math.max(0, Math.min(n, Math.floor(mapped * n + 0.5)));
-                out += charset[idx];
-              }
-            }
-            if (y < rows - 1) out += '\n';
-          }
-          this.el.textContent = out;
-          if (color !== undefined) this.el.style.color = color;
-          updateCardOverlayPosition(this);
+// ---- Fluid + ASCII field ----
+let fluid = new Fluid(cols, rows);
+
+function buildField() {
+  const field = new Float32Array(cols * rows);
+  for (let y = 0; y < rows; y++)
+    for (let x = 0; x < cols; x++)
+      field[y * cols + x] = Math.max(0, Math.min(1, fluid.d[fluid.IX(x+1, y+1)]));
+  return field;
+}
+
+function fieldToASCII(field) {
+  const cs = DENSITY_CHARSET, n = cs.length - 1;
+  const cardFits = CARD.width <= cols && CARD.height <= rows;
+  const cx0 = cardFits ? Math.floor((cols - CARD.width) / 2) : 0;
+  const cy0 = cardFits ? Math.floor((rows - CARD.height) / 2) : 0;
+  let out = '';
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      if (cardFits) {
+        const cy = y - cy0, cx = x - cx0;
+        if (cy >= 0 && cy < CARD.height && cx >= 0 && cx < CARD.width) {
+          out += CARD.lines[cy][cx];
+          continue;
         }
       }
+      const v = field[y * cols + x];
+      out += cs[Math.max(0, Math.min(n, Math.floor(v * n + 0.5)))];
+    }
+    if (y < rows - 1) out += '\n';
+  }
+  return out;
+}
 
-      // Simple stable fluids solver (Stam 1999) adapted to non-square grid
-      class Fluid {
-        constructor(nx, ny, diffusion = 0.0001, viscosity = 0.0001, iterations = 10) {
-          this.setSize(nx, ny);
-          this.diff = diffusion;
-          this.visc = viscosity;
-          this.iter = iterations;
-          this.dt = 1/60;
-        }
+// ---- WebGL setup ----
+const glCanvas = document.getElementById('gl');
+function resizeGL() {
+  const W = window.innerWidth, H = window.innerHeight;
+  glCanvas.width = Math.round(W * dpr);
+  glCanvas.height = Math.round(H * dpr);
+  glCanvas.style.width = W + 'px';
+  glCanvas.style.height = H + 'px';
+}
+resizeGL();
 
-        setSize(nx, ny) {
-          this.nx = Math.max(8, nx|0);
-          this.ny = Math.max(8, ny|0);
-          const N = (this.nx + 2) * (this.ny + 2);
-          this.s = new Float32Array(N); // temp/source
-          this.d = new Float32Array(N); // density
-          this.Vx = new Float32Array(N);
-          this.Vy = new Float32Array(N);
-          this.Vx0 = new Float32Array(N);
-          this.Vy0 = new Float32Array(N);
-        }
+const gl = glCanvas.getContext('webgl', { alpha: false, antialias: false, premultipliedAlpha: false });
+gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
 
-        IX(x, y) { return x + (this.nx + 2) * y; }
+// ---- Shaders ----
+const VERT = `
+attribute vec2 a_pos;
+varying vec2 v_uv;
+void main() {
+  v_uv = a_pos * 0.5 + 0.5;
+  gl_Position = vec4(a_pos, 0.0, 1.0);
+}`;
 
-        addDensity(x, y, amount) {
-          if (x < 1 || x > this.nx || y < 1 || y > this.ny) return;
-          this.d[this.IX(x, y)] += amount;
-        }
-        addVelocity(x, y, amountX, amountY) {
-          if (x < 1 || x > this.nx || y < 1 || y > this.ny) return;
-          const i = this.IX(x, y);
-          this.Vx[i] += amountX;
-          this.Vy[i] += amountY;
-        }
+const FRAG = `
+precision highp float;
+varying vec2 v_uv;
+uniform sampler2D u_tex;
+uniform vec2 u_res;
+uniform float u_time;
+uniform float u_barrel;
+uniform float u_chromatic;
+uniform float u_scanlineOp;
+uniform float u_scanlineGap;
+uniform float u_vigStart;
+uniform float u_vigStrength;
+uniform float u_flicker;
+uniform float u_brightness;
+uniform float u_glowSize;
+uniform float u_glowOpacity;
 
-        step() {
-          const N = this.nx, M = this.ny, dt = this.dt;
-          // Velocity step
-          this.diffuse(1, this.Vx0, this.Vx, this.visc, dt, N, M);
-          this.diffuse(2, this.Vy0, this.Vy, this.visc, dt, N, M);
-          this.project(this.Vx0, this.Vy0, this.Vx, this.Vy, N, M);
-          this.advect(1, this.Vx, this.Vx0, this.Vx0, this.Vy0, dt, N, M);
-          this.advect(2, this.Vy, this.Vy0, this.Vx0, this.Vy0, dt, N, M);
-          this.project(this.Vx, this.Vy, this.Vx0, this.Vy0, N, M);
-          // Density step
-          this.diffuse(0, this.s, this.d, this.diff, dt, N, M);
-          this.advect(0, this.d, this.s, this.Vx, this.Vy, dt, N, M);
-        }
+vec2 distort(vec2 uv, float k) {
+  vec2 c = uv * 2.0 - 1.0;
+  float r2 = dot(c, c);
+  return (c * (1.0 + k * r2)) * 0.5 + 0.5;
+}
 
-        set_bnd(b, x, N, M) {
-          for (let i = 1; i <= N; i++) {
-            x[this.IX(i, 0    )] = b === 2 ? -x[this.IX(i, 1    )] : x[this.IX(i, 1    )];
-            x[this.IX(i, M + 1)] = b === 2 ? -x[this.IX(i, M    )] : x[this.IX(i, M    )];
-          }
-          for (let j = 1; j <= M; j++) {
-            x[this.IX(0    , j)] = b === 1 ? -x[this.IX(1    , j)] : x[this.IX(1    , j)];
-            x[this.IX(N + 1, j)] = b === 1 ? -x[this.IX(N    , j)] : x[this.IX(N    , j)];
-          }
-          x[this.IX(0    , 0    )] = 0.5 * (x[this.IX(1, 0    )] + x[this.IX(0    , 1)]);
-          x[this.IX(0    , M + 1)] = 0.5 * (x[this.IX(1, M + 1)] + x[this.IX(0    , M)]);
-          x[this.IX(N + 1, 0    )] = 0.5 * (x[this.IX(N, 0    )] + x[this.IX(N + 1, 1)]);
-          x[this.IX(N + 1, M + 1)] = 0.5 * (x[this.IX(N, M + 1)] + x[this.IX(N + 1, M)]);
-        }
+void main() {
+  float k = u_barrel;
+  vec2 duv = distort(v_uv, k);
 
-        lin_solve(b, x, x0, a, c, N, M) {
-          for (let k = 0; k < this.iter; k++) {
-            for (let j = 1; j <= M; j++) {
-              const joff = (N + 2) * j;
-              for (let i = 1; i <= N; i++) {
-                x[joff + i] = (x0[joff + i] + a * (
-                  x[joff + i - 1] + x[joff + i + 1] +
-                  x[joff - (N + 2) + i] + x[joff + (N + 2) + i]
-                )) / c;
-              }
-            }
-            this.set_bnd(b, x, N, M);
-          }
-        }
+  // Out of bounds = black
+  if (duv.x < 0.0 || duv.x > 1.0 || duv.y < 0.0 || duv.y > 1.0) {
+    gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+    return;
+  }
 
-        diffuse(b, x, x0, diff, dt, N, M) {
-          const a = dt * diff * N * M; // approximation for non-square grid
-          this.lin_solve(b, x, x0, a, 1 + 4 * a, N, M);
-        }
+  // Texture is grayscale (white on black) — sample .r channel
+  // Chromatic aberration: slightly different k per channel
+  vec2 uvR = distort(v_uv, k * (1.0 + u_chromatic));
+  vec2 uvB = distort(v_uv, k * (1.0 - u_chromatic));
 
-        advect(b, d, d0, velx, vely, dt, N, M) {
-          const dt0x = dt * N;
-          const dt0y = dt * M;
-          for (let j = 1; j <= M; j++) {
-            for (let i = 1; i <= N; i++) {
-              let x = i - dt0x * velx[this.IX(i, j)];
-              let y = j - dt0y * vely[this.IX(i, j)];
+  float lumR = texture2D(u_tex, clamp(uvR, 0.0, 1.0)).r;
+  float lumG = texture2D(u_tex, duv).r;
+  float lumB = texture2D(u_tex, clamp(uvB, 0.0, 1.0)).r;
 
-              if (x < 0.5) x = 0.5; if (x > N + 0.5) x = N + 0.5;
-              if (y < 0.5) y = 0.5; if (y > M + 0.5) y = M + 0.5;
-              const i0 = x | 0, i1 = i0 + 1;
-              const j0 = y | 0, j1 = j0 + 1;
-              const s1 = x - i0, s0 = 1 - s1;
-              const t1 = y - j0, t0 = 1 - t1;
-              d[this.IX(i, j)] =
-                s0 * (t0 * d0[this.IX(i0, j0)] + t1 * d0[this.IX(i0, j1)]) +
-                s1 * (t0 * d0[this.IX(i1, j0)] + t1 * d0[this.IX(i1, j1)]);
-            }
-          }
-          this.set_bnd(b, d, N, M);
-        }
+  // Apply phosphor green tint (#d0f8d0)
+  vec3 phosphor = vec3(0.816, 0.973, 0.816);
+  vec3 color = vec3(lumR, lumG, lumB) * phosphor;
 
-        project(velx, vely, p, div, N, M) {
-          for (let j = 1; j <= M; j++) {
-            for (let i = 1; i <= N; i++) {
-              div[this.IX(i, j)] = -0.5 * (
-                (velx[this.IX(i + 1, j)] - velx[this.IX(i - 1, j)]) / N +
-                (vely[this.IX(i, j + 1)] - vely[this.IX(i, j - 1)]) / M
-              );
-              p[this.IX(i, j)] = 0;
-            }
-          }
-          this.set_bnd(0, div, N, M);
-          this.set_bnd(0, p, N, M);
-          this.lin_solve(0, p, div, 1, 4, N, M);
+  // Phosphor glow: 3-ring Gaussian bloom (24 grayscale samples, tinted)
+  if (u_glowSize > 0.0 && u_glowOpacity > 0.0) {
+    float bloom = 0.0;
 
-          for (let j = 1; j <= M; j++) {
-            for (let i = 1; i <= N; i++) {
-              velx[this.IX(i, j)] -= 0.5 * N * (p[this.IX(i + 1, j)] - p[this.IX(i - 1, j)]);
-              vely[this.IX(i, j)] -= 0.5 * M * (p[this.IX(i, j + 1)] - p[this.IX(i, j - 1)]);
-            }
-          }
-          this.set_bnd(1, velx, N, M);
-          this.set_bnd(2, vely, N, M);
-        }
-      }
+    // Ring 1: 0.33x radius — tight halo, highest weight
+    vec2 r1 = u_glowSize * 0.33 / u_res;
+    bloom += (texture2D(u_tex, duv + vec2(r1.x, 0.0)).r +
+              texture2D(u_tex, duv - vec2(r1.x, 0.0)).r +
+              texture2D(u_tex, duv + vec2(0.0, r1.y)).r +
+              texture2D(u_tex, duv - vec2(0.0, r1.y)).r) * 0.091;
+    bloom += (texture2D(u_tex, duv + r1).r +
+              texture2D(u_tex, duv - r1).r +
+              texture2D(u_tex, duv + vec2(r1.x, -r1.y)).r +
+              texture2D(u_tex, duv + vec2(-r1.x, r1.y)).r) * 0.061;
 
-      const DENSITY_CHARSET = ' .:-=+*#%@';
-      // Tuning constants
-      const DISSIPATION = 0.994; // faster fade to avoid snowballing
-      const AUTO_MOTION_DEPOSIT_SCALE = 0.15; // less density injected during preview
+    // Ring 2: 0.67x radius — mid spread
+    vec2 r2 = u_glowSize * 0.67 / u_res;
+    bloom += (texture2D(u_tex, duv + vec2(r2.x, 0.0)).r +
+              texture2D(u_tex, duv - vec2(r2.x, 0.0)).r +
+              texture2D(u_tex, duv + vec2(0.0, r2.y)).r +
+              texture2D(u_tex, duv - vec2(0.0, r2.y)).r) * 0.045;
+    bloom += (texture2D(u_tex, duv + r2).r +
+              texture2D(u_tex, duv - r2).r +
+              texture2D(u_tex, duv + vec2(r2.x, -r2.y)).r +
+              texture2D(u_tex, duv + vec2(-r2.x, r2.y)).r) * 0.030;
 
-      // Common input state
-      const input = {
-        down: false,
-        x: 0, y: 0,
-        px: 0, py: 0,
-        strength: 50,
-      };
+    // Ring 3: full radius — diffuse outer glow
+    vec2 r3 = u_glowSize / u_res;
+    bloom += (texture2D(u_tex, duv + vec2(r3.x, 0.0)).r +
+              texture2D(u_tex, duv - vec2(r3.x, 0.0)).r +
+              texture2D(u_tex, duv + vec2(0.0, r3.y)).r +
+              texture2D(u_tex, duv - vec2(0.0, r3.y)).r) * 0.015;
+    bloom += (texture2D(u_tex, duv + r3).r +
+              texture2D(u_tex, duv - r3).r +
+              texture2D(u_tex, duv + vec2(r3.x, -r3.y)).r +
+              texture2D(u_tex, duv + vec2(-r3.x, r3.y)).r) * 0.008;
 
-      // Mobile double-tap detector (background only)
-      const tapHistory = [];
-      const DOUBLE_TAP_WINDOW = 500; // ms
-      const DOUBLE_TAP_RADIUS = 60; // px
-      let suppressNextClick = false;
+    color += phosphor * bloom * u_glowOpacity;
+  }
 
-      function clientToCell(clientX, clientY) {
-        const rect = pre.getBoundingClientRect();
-        const xNorm = (clientX - rect.left) / rect.width;
-        const yNorm = (clientY - rect.top) / rect.height;
-        if (xNorm < 0 || xNorm > 1 || yNorm < 0 || yNorm > 1) return null;
-        const x = Math.floor(xNorm * renderer.cols);
-        const y = Math.floor(yNorm * renderer.rows);
-        if (x < 0 || y < 0 || x >= renderer.cols || y >= renderer.rows) return null;
-        return { x, y };
-      }
+  // Scanlines (physical pixel space)
+  float scanY = gl_FragCoord.y;
+  float inBright = step(u_scanlineGap * 0.5, mod(scanY, u_scanlineGap));
+  color *= 1.0 - u_scanlineOp * (1.0 - inBright);
 
-      function pointOnCard(clientX, clientY) {
-        const placement = renderer.cardPlacement;
-        if (!placement) return null;
-        const cell = clientToCell(clientX, clientY);
-        if (!cell) return null;
-        const cardX = cell.x - placement.startX;
-        const cardY = cell.y - placement.startY;
-        if (cardX < 0 || cardY < 0 || cardX >= placement.width || cardY >= placement.height) return null;
-        return { cardX, cardY };
-      }
+  // Vignette
+  vec2 vc = duv * 2.0 - 1.0;
+  float vr2 = dot(vc, vc);
+  float vs = u_vigStart * 0.01;
+  float vig = smoothstep(vs * vs * 2.0, 2.0, vr2);
+  color *= 1.0 - vig * u_vigStrength;
 
-      function linkAt(clientX, clientY) {
-        const hit = pointOnCard(clientX, clientY);
-        if (!hit) return null;
-        for (const link of CARD.links) {
-          if (!link) continue;
-          const matchesLine = hit.cardY === link.line || (link.underlineLine !== undefined && hit.cardY === link.underlineLine);
-          if (!matchesLine) continue;
-          if (hit.cardX >= link.start && hit.cardX < link.start + link.length) {
-            return link;
-          }
-        }
-        return null;
-      }
+  // Flicker — multi-frequency brightness variation
+  float fl = 1.0 - u_flicker * (
+    sin(u_time * 5.3) * 0.04 +    // slow roll
+    sin(u_time * 37.0) * 0.03 +   // medium wobble
+    sin(u_time * 83.0) * 0.02 +   // fast shimmer
+    sin(u_time * 173.0) * 0.01    // jitter
+  );
+  color *= fl;
 
-      function attachPointer(el) {
-        el.addEventListener('pointerdown', (e) => {
-          // Detect triple-tap on background (touch only)
-          if (e.pointerType === 'touch') {
-            const link = linkAt(e.clientX, e.clientY);
-            const onCard = !!pointOnCard(e.clientX, e.clientY);
-            if (!link && !onCard) {
-              const now = performance.now();
-              tapHistory.push({ t: now, x: e.clientX, y: e.clientY });
-              // Keep only recent taps
-              while (tapHistory.length > 2 || (tapHistory[0] && now - tapHistory[0].t > DOUBLE_TAP_WINDOW)) {
-                tapHistory.shift();
-              }
-              if (tapHistory.length === 2) {
-                const a = tapHistory[0], b = tapHistory[1];
-                const withinTime = b.t - a.t <= DOUBLE_TAP_WINDOW;
-                const dist = (p, q) => Math.hypot(p.x - q.x, p.y - q.y);
-                const withinSpace = dist(a, b) <= DOUBLE_TAP_RADIUS;
-                if (withinTime && withinSpace) {
-                  toggleWebcamMode();
-                  tapHistory.length = 0;
-                  input.down = false;
-                  suppressNextClick = true;
-                  if (e.cancelable) e.preventDefault();
-                  return; // don't start drawing
-                }
-              }
-            }
-          }
-          autoMotion = [];
-          autoMotionStart = null;
-          const link = linkAt(e.clientX, e.clientY);
-          if (link) {
-            input.down = false;
-            return;
-          }
-          const cardHit = pointOnCard(e.clientX, e.clientY);
-          input.down = !cardHit;
-          input.x = e.clientX; input.y = e.clientY; input.px = input.x; input.py = input.y;
-          // On touch devices, stop default scrolling/gestures when drawing on the background
-          if (input.down && e.cancelable) e.preventDefault();
-        });
-        window.addEventListener('pointerup', () => input.down = false);
-        window.addEventListener('pointermove', (e) => { input.x = e.clientX; input.y = e.clientY; });
-        // Ensure touch-drag doesn't scroll while drawing
-        el.addEventListener('pointermove', (e) => {
-          if (input.down && e.cancelable) e.preventDefault();
-        }, { passive: false });
-        el.addEventListener('wheel', (e) => {
-          input.strength = Math.max(5, Math.min(300, input.strength + (e.deltaY > 0 ? -5 : 5)));
-          e.preventDefault();
-        }, { passive: false });
-      }
+  // Edge shadow: darken near the OOB boundary for glass-thickness look
+  float edgeDist = min(min(duv.x, 1.0 - duv.x), min(duv.y, 1.0 - duv.y));
+  float edgeShadow = smoothstep(0.0, 0.03, edgeDist);
+  color *= edgeShadow;
 
-      // Single effect definition
-      const effect = {
-        background: '#000',
-        color: '#d0f8d0',
-        update(t, dt) {
-          const N = fluid.nx, M = fluid.ny;
-          const cx = N * 0.5, cy = M * 0.5;
-          for (let j = 2; j < M; j += 8) {
-            for (let i = 2; i < N; i += 8) {
-              const dx = i - cx, dy = j - cy;
-              const inv = 1 / Math.max(1, Math.hypot(dx, dy));
-              const fx = -dy * 0.05 * inv;
-              const fy = dx * 0.05 * inv;
-              fluid.addVelocity(i, j, fx, fy);
-            }
-          }
-          for (let y = 1; y <= M; y++) {
-            for (let x = 1; x <= N; x++) {
-              const k = fluid.IX(x, y);
-              fluid.d[k] *= DISSIPATION;
-            }
-          }
-        },
-        render() {
-          const cols = renderer.cols, rows = renderer.rows;
-          const field = new Float32Array(cols * rows);
-          for (let y = 0; y < rows; y++) {
-            for (let x = 0; x < cols; x++) {
-              const v = fluid.d[fluid.IX(x + 1, y + 1)];
-              field[y * cols + x] = Math.max(0, Math.min(1, v));
-            }
-          }
-          renderer.renderFromScalar(field, cols, rows, DENSITY_CHARSET, this.color);
-        },
-      };
+  // Overall brightness
+  color *= u_brightness;
 
-      const pre = document.getElementById('ascii');
-      const renderer = new AsciiRenderer(pre);
-      const cardOverlay = document.getElementById('cardOverlay');
-      let cardOverlayName = null;
-      const cardOverlayAnchors = [];
-      if (cardOverlay) {
-        cardOverlay.innerHTML = '';
-        if (CARD_NAME) {
-          cardOverlayName = document.createElement('span');
-          cardOverlayName.textContent = CARD_NAME.text;
-          cardOverlayName.style.position = 'absolute';
-          cardOverlayName.style.fontWeight = '700';
-          cardOverlayName.style.pointerEvents = 'none';
-          cardOverlay.appendChild(cardOverlayName);
-        }
-        CARD.links.forEach((link) => {
-          const a = document.createElement('a');
-          a.href = link.url;
-          a.textContent = link.text;
-          a.target = '_blank';
-          a.rel = 'noopener';
-          a.dataset.link = link.text.toLowerCase();
-          cardOverlay.appendChild(a);
-          link.anchor = a;
-          cardOverlayAnchors.push({ link, el: a });
-        });
-      }
+  gl_FragColor = vec4(color, 1.0);
+}`;
 
-      let fluid = new Fluid(renderer.cols, renderer.rows, 0.00005, 0.00005, 12);
-      const appEl = document.getElementById('app');
-      appEl.style.background = effect.background;
-      attachPointer(appEl);
+function makeShader(type, src) {
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src);
+  gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) console.error(gl.getShaderInfoLog(s));
+  return s;
+}
 
-      function updateCardOverlayPosition(rendererInstance) {
-        if (!cardOverlay) return;
-        const placement = rendererInstance.cardPlacement;
-        const cell = rendererInstance.cell;
-        if (!placement) {
-          cardOverlay.style.display = 'none';
-          return;
-        }
-        cardOverlay.style.display = 'block';
-        cardOverlay.style.left = `${placement.startX * cell.w}px`;
-        cardOverlay.style.top = `${placement.startY * cell.h}px`;
-        cardOverlay.style.width = `${placement.width * cell.w}px`;
-        cardOverlay.style.height = `${placement.height * cell.h}px`;
-        cardOverlay.style.fontSize = `${rendererInstance.fontSize}px`;
-        cardOverlay.style.lineHeight = `${cell.h}px`;
-        if (cardOverlayName && CARD_NAME) {
-          cardOverlayName.style.left = `${CARD_NAME.start * cell.w}px`;
-          cardOverlayName.style.top = `${CARD_NAME.line * cell.h}px`;
-          cardOverlayName.style.width = `${CARD_NAME.length * cell.w}px`;
-          cardOverlayName.style.height = `${cell.h}px`;
-          cardOverlayName.style.lineHeight = `${cell.h}px`;
-        }
-        cardOverlayAnchors.forEach(({ link, el }) => {
-          el.style.left = `${link.start * cell.w}px`;
-          el.style.top = `${link.line * cell.h}px`;
-          el.style.width = `${link.length * cell.w}px`;
-          el.style.height = `${cell.h}px`;
-          el.style.lineHeight = `${cell.h}px`;
-        });
-      }
+const prog = gl.createProgram();
+gl.attachShader(prog, makeShader(gl.VERTEX_SHADER, VERT));
+gl.attachShader(prog, makeShader(gl.FRAGMENT_SHADER, FRAG));
+gl.linkProgram(prog);
+gl.useProgram(prog);
 
-      function resizeAll() {
-        renderer.resize();
-        fluid.setSize(renderer.cols, renderer.rows);
-        updateCardOverlayPosition(renderer);
-        planAutoMotion();
-      }
-      window.addEventListener('resize', () => resizeAll());
+// Fullscreen quad
+const buf = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+const aPos = gl.getAttribLocation(prog, 'a_pos');
+gl.enableVertexAttribArray(aPos);
+gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
 
-      appEl.addEventListener('mousemove', (e) => {
-        const link = linkAt(e.clientX, e.clientY);
-        if (link) {
-          appEl.style.cursor = 'pointer';
-        } else if (pointOnCard(e.clientX, e.clientY)) {
-          appEl.style.cursor = 'default';
-        } else {
-          appEl.style.cursor = 'crosshair';
-        }
-      });
-      appEl.addEventListener('mouseleave', () => {
-        appEl.style.cursor = 'crosshair';
-      });
+// Texture (will hold the text canvas each frame)
+const tex = gl.createTexture();
+gl.bindTexture(gl.TEXTURE_2D, tex);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 
-      appEl.addEventListener('click', (e) => {
-        if (suppressNextClick) {
-          suppressNextClick = false;
-          e.preventDefault();
-          return;
-        }
-        if (e.target && e.target.closest && e.target.closest('#cardOverlay')) {
-          return;
-        }
-        const link = linkAt(e.clientX, e.clientY);
-        const onCard = !!pointOnCard(e.clientX, e.clientY);
-        // Desktop double-click on background toggles webcam mode
-        if (e.detail >= 2 && !link && !onCard) {
-          toggleWebcamMode();
-          e.preventDefault();
-          return;
-        }
-        if (!link) return;
-        window.open(link.url, '_blank', 'noopener');
-        e.preventDefault();
-      });
+// Uniform locations
+const loc = {};
+['u_tex','u_res','u_time','u_barrel','u_chromatic','u_scanlineOp','u_scanlineGap','u_vigStart','u_vigStrength','u_flicker','u_brightness','u_glowSize','u_glowOpacity']
+  .forEach(n => loc[n] = gl.getUniformLocation(prog, n));
 
-      function injectFromPointer(depositScale = 1) {
-        if (!input.down) return;
-        const gx = Math.floor((input.x / window.innerWidth) * fluid.nx) + 1;
-        const gy = Math.floor((input.y / window.innerHeight) * fluid.ny) + 1;
-        const pgx = Math.floor((input.px / window.innerWidth) * fluid.nx) + 1;
-        const pgy = Math.floor((input.py / window.innerHeight) * fluid.ny) + 1;
-        const vx = (gx - pgx) * (input.strength / 40);
-        const vy = (gy - pgy) * (input.strength / 40);
-        for (let ry = -1; ry <= 1; ry++) {
-          for (let rx = -1; rx <= 1; rx++) {
-            const x = gx + rx, y = gy + ry;
-            const base = (rx === 0 && ry === 0 ? 0.5 : 0.2);
-            fluid.addDensity(x, y, input.strength * base * depositScale);
-            fluid.addVelocity(x, y, vx, vy);
-          }
-        }
-        input.px = input.x; input.py = input.y;
-      }
+// ---- Params (shared with Tweakpane) ----
+const params = {
+  barrel: 0.09,
+  chromatic: 0.93,
+  scanlineOpacity: 0.39,
+  scanlineGap: 2,
+  vignetteStart: 38,
+  vignetteStrength: 0.74,
+  glowSize: 12.0,
+  glowOpacity: 0.36,
+  flicker: 0.68,
+  brightness: 1.04,
+};
 
-      let paused = false;
-      let last = performance.now();
-      let autoMotion = [];
-      let autoMotionStart = null;
-      window.addEventListener('keydown', (e) => {
-        if (e.code === 'Space') {
-          paused = !paused;
-          e.preventDefault();
-        } else if (e.key === 'c' || e.key === 'C') {
-          toggleWebcamMode();
-          e.preventDefault();
-        }
-      });
+// ---- Input handling ----
+const input = { down: false, x: 0, y: 0, px: 0, py: 0, strength: 50 };
+glCanvas.addEventListener('pointerdown', e => {
+  autoMotion = []; autoStart = null; // stop auto-motion on interaction
+  input.down = true;
+  input.x = e.clientX; input.y = e.clientY;
+  input.px = input.x; input.py = input.y;
+  if (e.cancelable) e.preventDefault();
+});
+window.addEventListener('pointerup', () => input.down = false);
+window.addEventListener('pointermove', e => { input.x = e.clientX; input.y = e.clientY; });
+glCanvas.addEventListener('pointermove', e => { if (input.down && e.cancelable) e.preventDefault(); }, { passive: false });
+glCanvas.addEventListener('wheel', e => {
+  input.strength = Math.max(5, Math.min(300, input.strength + (e.deltaY > 0 ? -5 : 5)));
+  e.preventDefault();
+}, { passive: false });
 
-      function planAutoMotion() {
-        const rect = pre.getBoundingClientRect();
-        if (!rect.width || !rect.height) return;
-        const centerX = rect.left + rect.width * 0.55;
-        const centerY = rect.top + rect.height * 0.45;
-        // Softer preview: smaller radius and more steps (smaller deltas)
-        const radius = Math.min(rect.width, rect.height) * 0.16;
-        const steps = 40;
-        autoMotion = [];
-        autoMotionStart = null;
-        input.down = false;
-        const startAngle = Math.random() * Math.PI * 2;
-        for (let i = 0; i < steps; i++) {
-          const theta = startAngle + (i / steps) * Math.PI * 2;
-          const x = centerX + Math.cos(theta) * radius;
-          const y = centerY + Math.sin(theta) * radius * 0.65;
-          autoMotion.push({ x, y });
-        }
-      }
+function injectPointer(scale = 1) {
+  if (!input.down) return;
+  const gx = Math.floor((input.x / window.innerWidth) * fluid.nx) + 1;
+  const gy = Math.floor((input.y / window.innerHeight) * fluid.ny) + 1;
+  const pgx = Math.floor((input.px / window.innerWidth) * fluid.nx) + 1;
+  const pgy = Math.floor((input.py / window.innerHeight) * fluid.ny) + 1;
+  const vx = (gx - pgx) * (input.strength / 40);
+  const vy = (gy - pgy) * (input.strength / 40);
+  for (let ry = -1; ry <= 1; ry++) for (let rx = -1; rx <= 1; rx++) {
+    const x = gx + rx, y = gy + ry;
+    const base = (rx === 0 && ry === 0 ? 0.5 : 0.2);
+    fluid.addDensity(x, y, input.strength * base * scale);
+    fluid.addVelocity(x, y, vx, vy);
+  }
+  input.px = input.x; input.py = input.y;
+}
 
-      const AUTO_MOTION_STRENGTH = 7; // halved again for extra softness
+// ---- Auto motion (initial swirl preview) ----
+let autoMotion = [], autoStart = null;
+function planAutoMotion() {
+  const cx = window.innerWidth * 0.55, cy = window.innerHeight * 0.45;
+  const r = Math.min(window.innerWidth, window.innerHeight) * 0.16;
+  autoMotion = []; autoStart = null; input.down = false;
+  const a0 = Math.random() * Math.PI * 2;
+  for (let i = 0; i < 40; i++) {
+    const th = a0 + (i / 40) * Math.PI * 2;
+    autoMotion.push({ x: cx + Math.cos(th) * r, y: cy + Math.sin(th) * r * 0.65 });
+  }
+}
+planAutoMotion();
 
-      // Webcam ASCII mode state
-      const webcam = {
-        active: false,
-        stream: null,
-        video: null,
-        canvas: null,
-        ctx: null,
-      };
+// ---- Link overlay ----
+const linkOverlay = document.getElementById('linkOverlay');
+const cardHitbox = document.getElementById('cardHitbox');
+CARD_LINKS.forEach(link => {
+  const a = document.createElement('a');
+  a.href = link.url;
+  if (!link.url.startsWith('mailto:')) { a.target = '_blank'; a.rel = 'noopener'; }
+  a.textContent = link.text;
+  linkOverlay.appendChild(a);
+  link.el = a;
+});
 
-      async function startWebcam() {
-        if (webcam.active) return true;
-        try {
-          const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
-          const video = document.createElement('video');
-          video.autoplay = true;
-          video.playsInline = true;
-          video.muted = true;
-          video.srcObject = stream;
-          // Hidden processing canvas
-          const canvas = document.createElement('canvas');
-          const ctx = canvas.getContext('2d', { willReadFrequently: true });
-          webcam.stream = stream;
-          webcam.video = video;
-          webcam.canvas = canvas;
-          webcam.ctx = ctx;
-          // Wait until we have video dimensions and can play
-          await new Promise((resolve) => {
-            if (video.readyState >= 2 && video.videoWidth) return resolve();
-            const onReady = () => {
-              video.removeEventListener('loadeddata', onReady);
-              resolve();
-            };
-            video.addEventListener('loadeddata', onReady, { once: true });
-          });
-          try { await video.play(); } catch (_) {}
-          webcam.active = true;
-          return true;
-        } catch (err) {
-          console.error('Webcam error:', err);
-          webcam.active = false;
-          return false;
-        }
-      }
+function positionLinks() {
+  const cardFits = CARD.width <= cols && CARD.height <= rows;
+  if (!cardFits) { linkOverlay.style.display = 'none'; return; }
+  linkOverlay.style.display = '';
+  const cx0 = Math.floor((cols - CARD.width) / 2);
+  const cy0 = Math.floor((rows - CARD.height) / 2);
+  cardHitbox.style.left = (cx0 * cell.w) + 'px';
+  cardHitbox.style.top = (cy0 * cell.h) + 'px';
+  cardHitbox.style.width = (CARD.width * cell.w) + 'px';
+  cardHitbox.style.height = (CARD.height * cell.h) + 'px';
+  CARD_LINKS.forEach(link => {
+    link.el.style.left = ((cx0 + link.start) * cell.w) + 'px';
+    link.el.style.top = ((cy0 + link.line) * cell.h) + 'px';
+    link.el.style.width = (link.length * cell.w) + 'px';
+    link.el.style.height = cell.h + 'px';
+  });
+}
+positionLinks();
 
-      function stopWebcam() {
-        if (!webcam.active) return;
-        if (webcam.stream) {
-          for (const tr of webcam.stream.getTracks()) tr.stop();
-        }
-        webcam.stream = null;
-        webcam.video = null;
-        webcam.canvas = null;
-        webcam.ctx = null;
-        webcam.active = false;
-      }
+// ---- Resize ----
+window.addEventListener('resize', () => {
+  computeGrid();
+  resizeTextCanvas();
+  resizeGL();
+  gl.viewport(0, 0, glCanvas.width, glCanvas.height);
+  fluid.setSize(cols, rows);
+  positionLinks();
+  planAutoMotion();
+});
 
-      async function toggleWebcamMode() {
-        if (webcam.active) {
-          stopWebcam();
-          planAutoMotion();
-        } else {
-          // disable auto motion when switching to webcam mode
-          autoMotion = [];
-          autoMotionStart = null;
-          await startWebcam();
-        }
-      }
+// ---- Animation loop ----
+let last = performance.now();
+gl.viewport(0, 0, glCanvas.width, glCanvas.height);
 
-      function renderWebcamASCII() {
-        if (!webcam.active || !webcam.video || !webcam.ctx) return;
-        if (!webcam.video.videoWidth || !webcam.video.videoHeight || webcam.video.readyState < 2) return;
-        const cols = renderer.cols, rows = renderer.rows;
-        if (webcam.canvas.width !== cols || webcam.canvas.height !== rows) {
-          webcam.canvas.width = cols;
-          webcam.canvas.height = rows;
-        }
-        const ctx = webcam.ctx;
-        // Clear and mirror for selfie view
-        ctx.clearRect(0, 0, cols, rows);
-        ctx.save();
-        ctx.scale(-1, 1);
-        // Stretch to grid; minor distortion acceptable for ASCII sampling
-        ctx.drawImage(webcam.video, -cols, 0, cols, rows);
-        ctx.restore();
-        const img = ctx.getImageData(0, 0, cols, rows).data;
-        const field = new Float32Array(cols * rows);
-        for (let y = 0; y < rows; y++) {
-          for (let x = 0; x < cols; x++) {
-            const i = (y * cols + x) * 4;
-            const r = img[i], g = img[i + 1], b = img[i + 2];
-            const v = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255; // [0,1]
-            field[y * cols + x] = v;
-          }
-        }
-        renderer.renderFromScalar(field, cols, rows, DENSITY_CHARSET, effect.color);
-      }
+function frame(t) {
+  const dt = Math.min(0.05, (t - last) / 1000);
+  last = t;
 
-      function frame(t) {
-        const dt = Math.min(0.05, (t - last) / 1000);
-        last = t;
-        if (!paused) {
-          if (webcam.active) {
-            renderWebcamASCII();
-          } else if (autoMotion.length) {
-            if (!autoMotionStart) autoMotionStart = t;
-            const elapsed = t - autoMotionStart;
-            const len = autoMotion.length;
-            // Slightly slower orbit for a calmer preview
-            const idx = Math.floor((elapsed / 40) % len);
-            const segment = autoMotion[idx];
-            const prev = autoMotion[(idx - 1 + len) % len];
-            input.down = true;
-            input.px = prev.x;
-            input.py = prev.y;
-            input.x = segment.x;
-            input.y = segment.y;
-            const prevStrength = input.strength;
-            input.strength = AUTO_MOTION_STRENGTH;
-            injectFromPointer(AUTO_MOTION_DEPOSIT_SCALE);
-            input.strength = prevStrength;
-            if (elapsed >= len * 32) {
-              autoMotion = [];
-              input.down = false;
-              autoMotionStart = null;
-            }
-          } else if (input.down) {
-            injectFromPointer();
-          }
-          if (!webcam.active) {
-            const seconds = t / 1000;
-            effect.update(seconds, dt);
-            fluid.step();
-            effect.render();
-          }
-        }
-        requestAnimationFrame(frame);
-      }
+  // Auto motion
+  if (autoMotion.length) {
+    if (!autoStart) autoStart = t;
+    const elapsed = t - autoStart;
+    const len = autoMotion.length;
+    const idx = Math.floor((elapsed / 40) % len);
+    const seg = autoMotion[idx], prev = autoMotion[(idx - 1 + len) % len];
+    input.down = true; input.px = prev.x; input.py = prev.y; input.x = seg.x; input.y = seg.y;
+    const ps = input.strength; input.strength = 7;
+    injectPointer(AUTO_MOTION_DEPOSIT);
+    input.strength = ps;
+    if (elapsed >= len * 32) { autoMotion = []; input.down = false; autoStart = null; }
+  } else if (input.down) {
+    injectPointer();
+  }
 
-      resizeAll();
-      planAutoMotion();
-      requestAnimationFrame(frame);
-    </script>
-  </body>
+  // Fluid update: ambient swirl + dissipation
+  const N = fluid.nx, M = fluid.ny;
+  const fcx = N * 0.5, fcy = M * 0.5;
+  for (let j = 2; j < M; j += 8) for (let i = 2; i < N; i += 8) {
+    const dx = i - fcx, dy = j - fcy, inv = 1 / Math.max(1, Math.hypot(dx, dy));
+    fluid.addVelocity(i, j, -dy * 0.05 * inv, dx * 0.05 * inv);
+  }
+  for (let y = 1; y <= M; y++) for (let x = 1; x <= N; x++) fluid.d[fluid.IX(x, y)] *= DISSIPATION;
+  fluid.step();
+
+  // Build ASCII and render to offscreen canvas
+  const field = buildField();
+  const ascii = fieldToASCII(field);
+  renderTextToCanvas(ascii);
+
+  // Upload text canvas as WebGL texture
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, textCanvas);
+
+  // Set uniforms
+  gl.uniform1i(loc.u_tex, 0);
+  gl.uniform2f(loc.u_res, glCanvas.width, glCanvas.height);
+  gl.uniform1f(loc.u_time, t / 1000);
+  gl.uniform1f(loc.u_barrel, params.barrel);
+  gl.uniform1f(loc.u_chromatic, params.chromatic);
+  gl.uniform1f(loc.u_scanlineOp, params.scanlineOpacity);
+  gl.uniform1f(loc.u_scanlineGap, params.scanlineGap * dpr);
+  gl.uniform1f(loc.u_vigStart, params.vignetteStart);
+  gl.uniform1f(loc.u_vigStrength, params.vignetteStrength);
+  gl.uniform1f(loc.u_flicker, params.flicker);
+  gl.uniform1f(loc.u_brightness, params.brightness);
+  gl.uniform1f(loc.u_glowSize, params.glowSize);
+  gl.uniform1f(loc.u_glowOpacity, params.glowOpacity);
+
+  // Draw fullscreen quad
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
 </html>

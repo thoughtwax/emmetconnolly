@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Emmet Connolly / digital product designer</title>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
+    #gl { position: fixed; inset: 0; width: 100vw; height: 100vh; cursor: crosshair; touch-action: none; }
+    #linkOverlay { position: fixed; inset: 0; pointer-events: none; z-index: 1; }
+    #cardHitbox { position: absolute; pointer-events: auto; cursor: default; }
+    #linkOverlay a { position: absolute; pointer-events: auto; color: transparent; text-decoration: none; cursor: pointer; }
+  </style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="linkOverlay"><div id="cardHitbox"></div></div>
+
+<script>
+// ============================================================
+// CRT WebGL experiment — barrel distortion as a GPU post-process
+//
+// Pipeline:
+//   1. Fluid simulation → density field
+//   2. Density field → ASCII characters → drawn on offscreen 2D canvas
+//   3. 2D canvas → WebGL texture → barrel distortion fragment shader → screen
+//
+// Advantages over JS-level distortion:
+//   - Sub-pixel smooth: GPU bilinear filtering, no grid snapping
+//   - Chromatic aberration, scanlines, vignette all in one shader pass
+//   - Zero CPU overhead for the distortion itself
+// ============================================================
+
+// ---- Utility: measure monospace character cell ----
+function measureCell(px) {
+  const s = document.createElement('span');
+  s.textContent = 'M';
+  s.style.cssText = `font:${px}px "JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;line-height:1;position:absolute;visibility:hidden`;
+  document.body.appendChild(s);
+  const r = s.getBoundingClientRect();
+  s.remove();
+  return { w: r.width, h: r.height };
+}
+
+// ---- Constants ----
+const DENSITY_CHARSET = ' .:-=+*#%@';
+const DISSIPATION = 0.994;
+const AUTO_MOTION_DEPOSIT = 0.15;
+
+const CARD_LINES = [
+  '\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510',
+  '\u2502                                      \u2502',
+  '\u2502 EMMET CONNOLLY                       \u2502',
+  '\u2502 SVP of Design, Intercom/Fin          \u2502',
+  '\u2502______________________________________\u2502',
+  '\u2502                                      \u2502',
+  '\u2502 blog / media / email / linkedin / x  \u2502',
+  '\u2502                                      \u2502',
+  '\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518',
+];
+const CARD = { lines: CARD_LINES, width: CARD_LINES[0].length, height: CARD_LINES.length };
+
+const CARD_LINKS = [
+  { text: 'Intercom', line: 3, url: 'https://intercom.com/' },
+  { text: 'Fin', line: 3, url: 'https://fin.ai/' },
+  { text: 'blog', line: 6, url: 'https://thoughtwax.com/' },
+  { text: 'media', line: 6, url: '/media/' },
+  { text: 'email', line: 6, url: 'mailto:emmmet.connolly@gmail.com' },
+  { text: 'linkedin', line: 6, url: 'https://www.linkedin.com/in/emmetconnolly/recent-activity/all/' },
+  { text: 'x', line: 6, url: 'https://x.com/thoughtwax' },
+].map(l => {
+  const start = CARD_LINES[l.line].indexOf(l.text);
+  return start >= 0 ? { ...l, start, length: l.text.length, el: null } : null;
+}).filter(Boolean);
+
+// ---- Fluid simulation (Stam 1999) ----
+class Fluid {
+  constructor(nx, ny, diff = 0.00005, visc = 0.00005, iter = 12) {
+    this.diff = diff; this.visc = visc; this.iter = iter; this.dt = 1/60;
+    this.setSize(nx, ny);
+  }
+  setSize(nx, ny) {
+    this.nx = Math.max(8, nx|0); this.ny = Math.max(8, ny|0);
+    const N = (this.nx+2)*(this.ny+2);
+    this.s = new Float32Array(N); this.d = new Float32Array(N);
+    this.Vx = new Float32Array(N); this.Vy = new Float32Array(N);
+    this.Vx0 = new Float32Array(N); this.Vy0 = new Float32Array(N);
+  }
+  IX(x,y) { return x+(this.nx+2)*y; }
+  addDensity(x,y,a) { if(x<1||x>this.nx||y<1||y>this.ny)return; this.d[this.IX(x,y)]+=a; }
+  addVelocity(x,y,ax,ay) { if(x<1||x>this.nx||y<1||y>this.ny)return; const i=this.IX(x,y); this.Vx[i]+=ax; this.Vy[i]+=ay; }
+  step() {
+    const N=this.nx, M=this.ny, dt=this.dt;
+    this.diffuse(1,this.Vx0,this.Vx,this.visc,dt,N,M);
+    this.diffuse(2,this.Vy0,this.Vy,this.visc,dt,N,M);
+    this.project(this.Vx0,this.Vy0,this.Vx,this.Vy,N,M);
+    this.advect(1,this.Vx,this.Vx0,this.Vx0,this.Vy0,dt,N,M);
+    this.advect(2,this.Vy,this.Vy0,this.Vx0,this.Vy0,dt,N,M);
+    this.project(this.Vx,this.Vy,this.Vx0,this.Vy0,N,M);
+    this.diffuse(0,this.s,this.d,this.diff,dt,N,M);
+    this.advect(0,this.d,this.s,this.Vx,this.Vy,dt,N,M);
+  }
+  set_bnd(b,x,N,M) {
+    for(let i=1;i<=N;i++){x[this.IX(i,0)]=b===2?-x[this.IX(i,1)]:x[this.IX(i,1)];x[this.IX(i,M+1)]=b===2?-x[this.IX(i,M)]:x[this.IX(i,M)];}
+    for(let j=1;j<=M;j++){x[this.IX(0,j)]=b===1?-x[this.IX(1,j)]:x[this.IX(1,j)];x[this.IX(N+1,j)]=b===1?-x[this.IX(N,j)]:x[this.IX(N,j)];}
+    x[this.IX(0,0)]=0.5*(x[this.IX(1,0)]+x[this.IX(0,1)]);
+    x[this.IX(0,M+1)]=0.5*(x[this.IX(1,M+1)]+x[this.IX(0,M)]);
+    x[this.IX(N+1,0)]=0.5*(x[this.IX(N,0)]+x[this.IX(N+1,1)]);
+    x[this.IX(N+1,M+1)]=0.5*(x[this.IX(N,M+1)]+x[this.IX(N+1,M)]);
+  }
+  lin_solve(b,x,x0,a,c,N,M) {
+    for(let k=0;k<this.iter;k++){for(let j=1;j<=M;j++){const jo=(N+2)*j;for(let i=1;i<=N;i++){x[jo+i]=(x0[jo+i]+a*(x[jo+i-1]+x[jo+i+1]+x[jo-(N+2)+i]+x[jo+(N+2)+i]))/c;}}this.set_bnd(b,x,N,M);}
+  }
+  diffuse(b,x,x0,diff,dt,N,M) { const a=dt*diff*N*M; this.lin_solve(b,x,x0,a,1+4*a,N,M); }
+  advect(b,d,d0,vx,vy,dt,N,M) {
+    const dtx=dt*N, dty=dt*M;
+    for(let j=1;j<=M;j++){for(let i=1;i<=N;i++){
+      let x=i-dtx*vx[this.IX(i,j)], y=j-dty*vy[this.IX(i,j)];
+      if(x<0.5)x=0.5;if(x>N+0.5)x=N+0.5;if(y<0.5)y=0.5;if(y>M+0.5)y=M+0.5;
+      const i0=x|0,i1=i0+1,j0=y|0,j1=j0+1,s1=x-i0,s0=1-s1,t1=y-j0,t0=1-t1;
+      d[this.IX(i,j)]=s0*(t0*d0[this.IX(i0,j0)]+t1*d0[this.IX(i0,j1)])+s1*(t0*d0[this.IX(i1,j0)]+t1*d0[this.IX(i1,j1)]);
+    }}
+    this.set_bnd(b,d,N,M);
+  }
+  project(vx,vy,p,div,N,M) {
+    for(let j=1;j<=M;j++){for(let i=1;i<=N;i++){div[this.IX(i,j)]=-0.5*((vx[this.IX(i+1,j)]-vx[this.IX(i-1,j)])/N+(vy[this.IX(i,j+1)]-vy[this.IX(i,j-1)])/M);p[this.IX(i,j)]=0;}}
+    this.set_bnd(0,div,N,M); this.set_bnd(0,p,N,M);
+    this.lin_solve(0,p,div,1,4,N,M);
+    for(let j=1;j<=M;j++){for(let i=1;i<=N;i++){vx[this.IX(i,j)]-=0.5*N*(p[this.IX(i+1,j)]-p[this.IX(i-1,j)]);vy[this.IX(i,j)]-=0.5*M*(p[this.IX(i,j+1)]-p[this.IX(i,j-1)]);}}
+    this.set_bnd(1,vx,N,M); this.set_bnd(2,vy,N,M);
+  }
+}
+
+// ---- Grid sizing ----
+let fontSize = 12;
+let cell = measureCell(fontSize);
+let cols, rows;
+const dpr = window.devicePixelRatio || 1;
+
+function computeGrid() {
+  const W = window.innerWidth, H = window.innerHeight;
+  const target = Math.max(80, Math.min(200, Math.floor(W / cell.w)));
+  const scale = (W / target) / cell.w;
+  fontSize = Math.max(8, Math.min(18, Math.floor(fontSize * scale)));
+  cell = measureCell(fontSize);
+  cols = Math.max(40, Math.min(240, Math.floor(W / cell.w)));
+  rows = Math.max(20, Math.min(160, Math.floor(H / cell.h)));
+}
+computeGrid();
+
+// ---- Offscreen 2D canvas for ASCII text ----
+const textCanvas = document.createElement('canvas');
+const textCtx = textCanvas.getContext('2d');
+
+function resizeTextCanvas() {
+  // Size to fill viewport at device resolution
+  textCanvas.width = Math.round(window.innerWidth * dpr);
+  textCanvas.height = Math.round(window.innerHeight * dpr);
+}
+resizeTextCanvas();
+
+function renderTextToCanvas(asciiString) {
+  const c = textCtx;
+  const w = textCanvas.width, h = textCanvas.height;
+  // Black background + white text → avoids LCD sub-pixel fringing
+  // Shader applies the phosphor green color from the grayscale texture
+  c.fillStyle = '#000';
+  c.fillRect(0, 0, w, h);
+  c.font = `${fontSize * dpr}px "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace`;
+  c.textBaseline = 'top';
+  c.fillStyle = '#fff';
+  const lines = asciiString.split('\n');
+  const cellH = cell.h * dpr;
+  for (let y = 0; y < lines.length; y++) {
+    c.fillText(lines[y], 0, Math.round(y * cellH));
+  }
+}
+
+// ---- Fluid + ASCII field ----
+let fluid = new Fluid(cols, rows);
+
+function buildField() {
+  const field = new Float32Array(cols * rows);
+  for (let y = 0; y < rows; y++)
+    for (let x = 0; x < cols; x++)
+      field[y * cols + x] = Math.max(0, Math.min(1, fluid.d[fluid.IX(x+1, y+1)]));
+  return field;
+}
+
+function fieldToASCII(field) {
+  const cs = DENSITY_CHARSET, n = cs.length - 1;
+  const cardFits = CARD.width <= cols && CARD.height <= rows;
+  const cx0 = cardFits ? Math.floor((cols - CARD.width) / 2) : 0;
+  const cy0 = cardFits ? Math.floor((rows - CARD.height) / 2) : 0;
+  let out = '';
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      if (cardFits) {
+        const cy = y - cy0, cx = x - cx0;
+        if (cy >= 0 && cy < CARD.height && cx >= 0 && cx < CARD.width) {
+          out += CARD.lines[cy][cx];
+          continue;
+        }
+      }
+      const v = field[y * cols + x];
+      out += cs[Math.max(0, Math.min(n, Math.floor(v * n + 0.5)))];
+    }
+    if (y < rows - 1) out += '\n';
+  }
+  return out;
+}
+
+// ---- WebGL setup ----
+const glCanvas = document.getElementById('gl');
+function resizeGL() {
+  const W = window.innerWidth, H = window.innerHeight;
+  glCanvas.width = Math.round(W * dpr);
+  glCanvas.height = Math.round(H * dpr);
+  glCanvas.style.width = W + 'px';
+  glCanvas.style.height = H + 'px';
+}
+resizeGL();
+
+const gl = glCanvas.getContext('webgl', { alpha: false, antialias: false, premultipliedAlpha: false });
+gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+
+// ---- Shaders ----
+const VERT = `
+attribute vec2 a_pos;
+varying vec2 v_uv;
+void main() {
+  v_uv = a_pos * 0.5 + 0.5;
+  gl_Position = vec4(a_pos, 0.0, 1.0);
+}`;
+
+const FRAG = `
+precision highp float;
+varying vec2 v_uv;
+uniform sampler2D u_tex;
+uniform vec2 u_res;
+uniform float u_time;
+uniform float u_barrel;
+uniform float u_chromatic;
+uniform float u_scanlineOp;
+uniform float u_scanlineGap;
+uniform float u_vigStart;
+uniform float u_vigStrength;
+uniform float u_flicker;
+uniform float u_brightness;
+uniform float u_glowSize;
+uniform float u_glowOpacity;
+
+vec2 distort(vec2 uv, float k) {
+  vec2 c = uv * 2.0 - 1.0;
+  float r2 = dot(c, c);
+  return (c * (1.0 + k * r2)) * 0.5 + 0.5;
+}
+
+void main() {
+  float k = u_barrel;
+  vec2 duv = distort(v_uv, k);
+
+  // Out of bounds = black
+  if (duv.x < 0.0 || duv.x > 1.0 || duv.y < 0.0 || duv.y > 1.0) {
+    gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+    return;
+  }
+
+  // Texture is grayscale (white on black) — sample .r channel
+  // Chromatic aberration: slightly different k per channel
+  vec2 uvR = distort(v_uv, k * (1.0 + u_chromatic));
+  vec2 uvB = distort(v_uv, k * (1.0 - u_chromatic));
+
+  float lumR = texture2D(u_tex, clamp(uvR, 0.0, 1.0)).r;
+  float lumG = texture2D(u_tex, duv).r;
+  float lumB = texture2D(u_tex, clamp(uvB, 0.0, 1.0)).r;
+
+  // Apply phosphor green tint (#d0f8d0)
+  vec3 phosphor = vec3(0.816, 0.973, 0.816);
+  vec3 color = vec3(lumR, lumG, lumB) * phosphor;
+
+  // Phosphor glow: 3-ring Gaussian bloom (24 grayscale samples, tinted)
+  if (u_glowSize > 0.0 && u_glowOpacity > 0.0) {
+    float bloom = 0.0;
+
+    // Ring 1: 0.33x radius — tight halo, highest weight
+    vec2 r1 = u_glowSize * 0.33 / u_res;
+    bloom += (texture2D(u_tex, duv + vec2(r1.x, 0.0)).r +
+              texture2D(u_tex, duv - vec2(r1.x, 0.0)).r +
+              texture2D(u_tex, duv + vec2(0.0, r1.y)).r +
+              texture2D(u_tex, duv - vec2(0.0, r1.y)).r) * 0.091;
+    bloom += (texture2D(u_tex, duv + r1).r +
+              texture2D(u_tex, duv - r1).r +
+              texture2D(u_tex, duv + vec2(r1.x, -r1.y)).r +
+              texture2D(u_tex, duv + vec2(-r1.x, r1.y)).r) * 0.061;
+
+    // Ring 2: 0.67x radius — mid spread
+    vec2 r2 = u_glowSize * 0.67 / u_res;
+    bloom += (texture2D(u_tex, duv + vec2(r2.x, 0.0)).r +
+              texture2D(u_tex, duv - vec2(r2.x, 0.0)).r +
+              texture2D(u_tex, duv + vec2(0.0, r2.y)).r +
+              texture2D(u_tex, duv - vec2(0.0, r2.y)).r) * 0.045;
+    bloom += (texture2D(u_tex, duv + r2).r +
+              texture2D(u_tex, duv - r2).r +
+              texture2D(u_tex, duv + vec2(r2.x, -r2.y)).r +
+              texture2D(u_tex, duv + vec2(-r2.x, r2.y)).r) * 0.030;
+
+    // Ring 3: full radius — diffuse outer glow
+    vec2 r3 = u_glowSize / u_res;
+    bloom += (texture2D(u_tex, duv + vec2(r3.x, 0.0)).r +
+              texture2D(u_tex, duv - vec2(r3.x, 0.0)).r +
+              texture2D(u_tex, duv + vec2(0.0, r3.y)).r +
+              texture2D(u_tex, duv - vec2(0.0, r3.y)).r) * 0.015;
+    bloom += (texture2D(u_tex, duv + r3).r +
+              texture2D(u_tex, duv - r3).r +
+              texture2D(u_tex, duv + vec2(r3.x, -r3.y)).r +
+              texture2D(u_tex, duv + vec2(-r3.x, r3.y)).r) * 0.008;
+
+    color += phosphor * bloom * u_glowOpacity;
+  }
+
+  // Scanlines (physical pixel space)
+  float scanY = gl_FragCoord.y;
+  float inBright = step(u_scanlineGap * 0.5, mod(scanY, u_scanlineGap));
+  color *= 1.0 - u_scanlineOp * (1.0 - inBright);
+
+  // Vignette
+  vec2 vc = duv * 2.0 - 1.0;
+  float vr2 = dot(vc, vc);
+  float vs = u_vigStart * 0.01;
+  float vig = smoothstep(vs * vs * 2.0, 2.0, vr2);
+  color *= 1.0 - vig * u_vigStrength;
+
+  // Flicker — multi-frequency brightness variation
+  float fl = 1.0 - u_flicker * (
+    sin(u_time * 5.3) * 0.04 +    // slow roll
+    sin(u_time * 37.0) * 0.03 +   // medium wobble
+    sin(u_time * 83.0) * 0.02 +   // fast shimmer
+    sin(u_time * 173.0) * 0.01    // jitter
+  );
+  color *= fl;
+
+  // Edge shadow: darken near the OOB boundary for glass-thickness look
+  float edgeDist = min(min(duv.x, 1.0 - duv.x), min(duv.y, 1.0 - duv.y));
+  float edgeShadow = smoothstep(0.0, 0.03, edgeDist);
+  color *= edgeShadow;
+
+  // Overall brightness
+  color *= u_brightness;
+
+  gl_FragColor = vec4(color, 1.0);
+}`;
+
+function makeShader(type, src) {
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src);
+  gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) console.error(gl.getShaderInfoLog(s));
+  return s;
+}
+
+const prog = gl.createProgram();
+gl.attachShader(prog, makeShader(gl.VERTEX_SHADER, VERT));
+gl.attachShader(prog, makeShader(gl.FRAGMENT_SHADER, FRAG));
+gl.linkProgram(prog);
+gl.useProgram(prog);
+
+// Fullscreen quad
+const buf = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+const aPos = gl.getAttribLocation(prog, 'a_pos');
+gl.enableVertexAttribArray(aPos);
+gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+
+// Texture (will hold the text canvas each frame)
+const tex = gl.createTexture();
+gl.bindTexture(gl.TEXTURE_2D, tex);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+// Uniform locations
+const loc = {};
+['u_tex','u_res','u_time','u_barrel','u_chromatic','u_scanlineOp','u_scanlineGap','u_vigStart','u_vigStrength','u_flicker','u_brightness','u_glowSize','u_glowOpacity']
+  .forEach(n => loc[n] = gl.getUniformLocation(prog, n));
+
+// ---- Params (shared with Tweakpane) ----
+const params = {
+  barrel: 0.09,
+  chromatic: 0.93,
+  scanlineOpacity: 0.39,
+  scanlineGap: 2,
+  vignetteStart: 38,
+  vignetteStrength: 0.74,
+  glowSize: 12.0,
+  glowOpacity: 0.36,
+  flicker: 0.68,
+  brightness: 1.04,
+};
+
+// ---- Input handling ----
+const input = { down: false, x: 0, y: 0, px: 0, py: 0, strength: 50 };
+glCanvas.addEventListener('pointerdown', e => {
+  autoMotion = []; autoStart = null; // stop auto-motion on interaction
+  input.down = true;
+  input.x = e.clientX; input.y = e.clientY;
+  input.px = input.x; input.py = input.y;
+  if (e.cancelable) e.preventDefault();
+});
+window.addEventListener('pointerup', () => input.down = false);
+window.addEventListener('pointermove', e => { input.x = e.clientX; input.y = e.clientY; });
+glCanvas.addEventListener('pointermove', e => { if (input.down && e.cancelable) e.preventDefault(); }, { passive: false });
+glCanvas.addEventListener('wheel', e => {
+  input.strength = Math.max(5, Math.min(300, input.strength + (e.deltaY > 0 ? -5 : 5)));
+  e.preventDefault();
+}, { passive: false });
+
+function injectPointer(scale = 1) {
+  if (!input.down) return;
+  const gx = Math.floor((input.x / window.innerWidth) * fluid.nx) + 1;
+  const gy = Math.floor((input.y / window.innerHeight) * fluid.ny) + 1;
+  const pgx = Math.floor((input.px / window.innerWidth) * fluid.nx) + 1;
+  const pgy = Math.floor((input.py / window.innerHeight) * fluid.ny) + 1;
+  const vx = (gx - pgx) * (input.strength / 40);
+  const vy = (gy - pgy) * (input.strength / 40);
+  for (let ry = -1; ry <= 1; ry++) for (let rx = -1; rx <= 1; rx++) {
+    const x = gx + rx, y = gy + ry;
+    const base = (rx === 0 && ry === 0 ? 0.5 : 0.2);
+    fluid.addDensity(x, y, input.strength * base * scale);
+    fluid.addVelocity(x, y, vx, vy);
+  }
+  input.px = input.x; input.py = input.y;
+}
+
+// ---- Auto motion (initial swirl preview) ----
+let autoMotion = [], autoStart = null;
+function planAutoMotion() {
+  const cx = window.innerWidth * 0.55, cy = window.innerHeight * 0.45;
+  const r = Math.min(window.innerWidth, window.innerHeight) * 0.16;
+  autoMotion = []; autoStart = null; input.down = false;
+  const a0 = Math.random() * Math.PI * 2;
+  for (let i = 0; i < 40; i++) {
+    const th = a0 + (i / 40) * Math.PI * 2;
+    autoMotion.push({ x: cx + Math.cos(th) * r, y: cy + Math.sin(th) * r * 0.65 });
+  }
+}
+planAutoMotion();
+
+// ---- Link overlay ----
+const linkOverlay = document.getElementById('linkOverlay');
+const cardHitbox = document.getElementById('cardHitbox');
+CARD_LINKS.forEach(link => {
+  const a = document.createElement('a');
+  a.href = link.url;
+  if (!link.url.startsWith('mailto:')) { a.target = '_blank'; a.rel = 'noopener'; }
+  a.textContent = link.text;
+  linkOverlay.appendChild(a);
+  link.el = a;
+});
+
+function positionLinks() {
+  const cardFits = CARD.width <= cols && CARD.height <= rows;
+  if (!cardFits) { linkOverlay.style.display = 'none'; return; }
+  linkOverlay.style.display = '';
+  const cx0 = Math.floor((cols - CARD.width) / 2);
+  const cy0 = Math.floor((rows - CARD.height) / 2);
+  cardHitbox.style.left = (cx0 * cell.w) + 'px';
+  cardHitbox.style.top = (cy0 * cell.h) + 'px';
+  cardHitbox.style.width = (CARD.width * cell.w) + 'px';
+  cardHitbox.style.height = (CARD.height * cell.h) + 'px';
+  CARD_LINKS.forEach(link => {
+    link.el.style.left = ((cx0 + link.start) * cell.w) + 'px';
+    link.el.style.top = ((cy0 + link.line) * cell.h) + 'px';
+    link.el.style.width = (link.length * cell.w) + 'px';
+    link.el.style.height = cell.h + 'px';
+  });
+}
+positionLinks();
+
+// ---- Resize ----
+window.addEventListener('resize', () => {
+  computeGrid();
+  resizeTextCanvas();
+  resizeGL();
+  gl.viewport(0, 0, glCanvas.width, glCanvas.height);
+  fluid.setSize(cols, rows);
+  positionLinks();
+  planAutoMotion();
+});
+
+// ---- Animation loop ----
+let last = performance.now();
+gl.viewport(0, 0, glCanvas.width, glCanvas.height);
+
+function frame(t) {
+  const dt = Math.min(0.05, (t - last) / 1000);
+  last = t;
+
+  // Auto motion
+  if (autoMotion.length) {
+    if (!autoStart) autoStart = t;
+    const elapsed = t - autoStart;
+    const len = autoMotion.length;
+    const idx = Math.floor((elapsed / 40) % len);
+    const seg = autoMotion[idx], prev = autoMotion[(idx - 1 + len) % len];
+    input.down = true; input.px = prev.x; input.py = prev.y; input.x = seg.x; input.y = seg.y;
+    const ps = input.strength; input.strength = 7;
+    injectPointer(AUTO_MOTION_DEPOSIT);
+    input.strength = ps;
+    if (elapsed >= len * 32) { autoMotion = []; input.down = false; autoStart = null; }
+  } else if (input.down) {
+    injectPointer();
+  }
+
+  // Fluid update: ambient swirl + dissipation
+  const N = fluid.nx, M = fluid.ny;
+  const fcx = N * 0.5, fcy = M * 0.5;
+  for (let j = 2; j < M; j += 8) for (let i = 2; i < N; i += 8) {
+    const dx = i - fcx, dy = j - fcy, inv = 1 / Math.max(1, Math.hypot(dx, dy));
+    fluid.addVelocity(i, j, -dy * 0.05 * inv, dx * 0.05 * inv);
+  }
+  for (let y = 1; y <= M; y++) for (let x = 1; x <= N; x++) fluid.d[fluid.IX(x, y)] *= DISSIPATION;
+  fluid.step();
+
+  // Build ASCII and render to offscreen canvas
+  const field = buildField();
+  const ascii = fieldToASCII(field);
+  renderTextToCanvas(ascii);
+
+  // Upload text canvas as WebGL texture
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, textCanvas);
+
+  // Set uniforms
+  gl.uniform1i(loc.u_tex, 0);
+  gl.uniform2f(loc.u_res, glCanvas.width, glCanvas.height);
+  gl.uniform1f(loc.u_time, t / 1000);
+  gl.uniform1f(loc.u_barrel, params.barrel);
+  gl.uniform1f(loc.u_chromatic, params.chromatic);
+  gl.uniform1f(loc.u_scanlineOp, params.scanlineOpacity);
+  gl.uniform1f(loc.u_scanlineGap, params.scanlineGap * dpr);
+  gl.uniform1f(loc.u_vigStart, params.vignetteStart);
+  gl.uniform1f(loc.u_vigStrength, params.vignetteStrength);
+  gl.uniform1f(loc.u_flicker, params.flicker);
+  gl.uniform1f(loc.u_brightness, params.brightness);
+  gl.uniform1f(loc.u_glowSize, params.glowSize);
+  gl.uniform1f(loc.u_glowOpacity, params.glowOpacity);
+
+  // Draw fullscreen quad
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
