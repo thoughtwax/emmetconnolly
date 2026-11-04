@@ -12,7 +12,7 @@
       href="https://fonts.googleapis.com/css2?family=JetBrains+Mono&display=swap"
     />
     <style>
-      /* Three columns, one per category, stacking to one below 60em */
+      /* One column per category, each at reading width (44-60ch); 3, 2 or 1 across depending on room */
       :root {
         --ink: #000;
         --muted: #6e6e6e;
@@ -39,7 +39,7 @@
         min-height: 100vh;
       }
       main {
-        max-width: 132ch;
+        max-width: calc(3 * 60ch + 2 * 5ch + 8rem); /* three 60ch columns plus side padding */
         padding: clamp(3rem, 10vh, 6rem) clamp(1.5rem, 6vw, 4rem) 6rem;
       }
       h1,
@@ -73,18 +73,14 @@
 
       .columns {
         display: grid;
-        grid-template-columns: minmax(0, 60ch);
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 44ch), 1fr));
+        column-gap: 5ch;
         row-gap: calc(var(--line) * 3);
         margin-top: calc(var(--line) * 3);
       }
-      @media (min-width: 60em) {
-        .columns {
-          grid-template-columns: repeat(3, minmax(0, 1fr));
-          column-gap: 5ch;
-        }
-      }
       section {
         min-width: 0;
+        max-width: 60ch;
       }
       h2 {
         display: flex;
@@ -165,6 +161,15 @@
           </ul>
         </section>
 
+        <section aria-labelledby="h-writing">
+          <h2 id="h-writing"><svg class="i" aria-hidden="true"><use href="#i-writing"/></svg>Writing</h2>
+          <ul>
+            <li><a href="https://ideas.fin.ai/p/scroll-to-accept" target="_blank" rel="noopener"><span class="t">Scroll-to-Accept?</span><span class="m">Fin Ideas, <time datetime="2026-01">Jan 2026</time></span></a></li>
+            <li><a href="https://ideas.fin.ai/p/a-tale-of-two-agent-builders" target="_blank" rel="noopener"><span class="t">A Tale of Two Agent Builders</span><span class="m">Fin Ideas, <time datetime="2025-10">Oct 2025</time></span></a></li>
+            <li><a href="https://ideas.fin.ai/p/intercoms-3-point-framework-for-ai" target="_blank" rel="noopener"><span class="t">Intercom’s 3-Point Framework for AI-Driven Design</span><span class="m">Fin Ideas, <time datetime="2025-10">Oct 2025</time></span></a></li>
+          </ul>
+        </section>
+
         <section aria-labelledby="h-podcast">
           <h2 id="h-podcast"><svg class="i" aria-hidden="true"><use href="#i-podcast"/></svg>Podcasts</h2>
           <ul>
@@ -175,15 +180,6 @@
             <li><a href="https://www.youtube.com/watch?v=bLix8mAp5k8" target="_blank" rel="noopener"><span class="t">Riding the AI Wave in 2024</span><span class="m">Intercom on Product, <time datetime="2024-01">Jan 2024</time></span></a></li>
             <li><a href="https://www.youtube.com/watch?v=KYBQzO2u1Xs" target="_blank" rel="noopener"><span class="t">The Emergence of Superintelligent AI</span><span class="m">Intercom, <time datetime="2023-08">Aug 2023</time></span></a></li>
             <li><a href="https://www.youtube.com/watch?v=G8W6YqDsjhg" target="_blank" rel="noopener"><span class="t">From Science Fiction to Reality: Exploring the Potential of LLMs</span><span class="m">Intercom, <time datetime="2023-06">Jun 2023</time></span></a></li>
-          </ul>
-        </section>
-
-        <section aria-labelledby="h-writing">
-          <h2 id="h-writing"><svg class="i" aria-hidden="true"><use href="#i-writing"/></svg>Writing</h2>
-          <ul>
-            <li><a href="https://ideas.fin.ai/p/scroll-to-accept" target="_blank" rel="noopener"><span class="t">Scroll-to-Accept?</span><span class="m">Fin Ideas, <time datetime="2026-01">Jan 2026</time></span></a></li>
-            <li><a href="https://ideas.fin.ai/p/a-tale-of-two-agent-builders" target="_blank" rel="noopener"><span class="t">A Tale of Two Agent Builders</span><span class="m">Fin Ideas, <time datetime="2025-10">Oct 2025</time></span></a></li>
-            <li><a href="https://ideas.fin.ai/p/intercoms-3-point-framework-for-ai" target="_blank" rel="noopener"><span class="t">Intercom’s 3-Point Framework for AI-Driven Design</span><span class="m">Fin Ideas, <time datetime="2025-10">Oct 2025</time></span></a></li>
           </ul>
         </section>
       </div>
