@@ -18,7 +18,7 @@
         --muted: #6e6e6e;
         --rule: #dcdcdc;
         --paper: #fff;
-        --line: 1.5rem; /* 24px baseline */
+        --line: 1rem; /* 16px line, 8px grid, as on Thoughtwax notes */
       }
       * {
         margin: 0;
@@ -33,7 +33,7 @@
         background: var(--paper);
         color: var(--ink);
         font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-        font-size: 1rem;
+        font-size: 0.8125rem; /* 13px */
         line-height: var(--line);
         font-kerning: normal;
         min-height: 100vh;
@@ -108,8 +108,8 @@
         list-style: none;
         display: flex;
         flex-direction: column;
-        gap: var(--line);
-        margin-top: var(--line);
+        gap: calc(var(--line) * 1.5);
+        margin-top: calc(var(--line) * 1.5);
       }
       li a {
         display: block;
