@@ -12,9 +12,11 @@
       href="https://fonts.googleapis.com/css2?family=JetBrains+Mono&display=swap"
     />
     <style>
+      /* Three columns, one per category, stacking to one below 60em */
       :root {
         --ink: #000;
         --muted: #6e6e6e;
+        --rule: #dcdcdc;
         --paper: #fff;
         --line: 1.5rem; /* 24px baseline */
       }
@@ -37,10 +39,11 @@
         min-height: 100vh;
       }
       main {
-        max-width: 60ch;
+        max-width: 132ch;
         padding: clamp(3rem, 10vh, 6rem) clamp(1.5rem, 6vw, 4rem) 6rem;
       }
-      h1 {
+      h1,
+      h2 {
         font-size: inherit;
         font-weight: inherit;
       }
@@ -62,19 +65,37 @@
         color: var(--muted);
         transition: none;
       }
-      a:focus-visible,
-      button:focus-visible {
+      a:focus-visible {
         outline: 2px solid var(--ink);
         outline-offset: 4px;
         border-radius: 1px;
       }
 
-      /* Type icons: 0.75em line glyphs, one character cell plus a space */
+      .columns {
+        display: grid;
+        grid-template-columns: minmax(0, 60ch);
+        row-gap: calc(var(--line) * 3);
+        margin-top: calc(var(--line) * 3);
+      }
+      @media (min-width: 60em) {
+        .columns {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          column-gap: 5ch;
+        }
+      }
+      section {
+        min-width: 0;
+      }
+      h2 {
+        display: flex;
+        align-items: center;
+        padding-bottom: calc(var(--line) / 2);
+        border-bottom: 1px solid var(--rule);
+      }
       .i {
         width: 0.75em;
         height: 0.75em;
         margin-right: 1ch;
-        vertical-align: -0.05em;
         flex-shrink: 0;
         fill: none;
         stroke: currentColor;
@@ -83,53 +104,12 @@
         stroke-linejoin: round;
         overflow: visible;
       }
-
-      /* Filter: three toggles, all on by default */
-      .filters {
-        display: flex;
-        flex-wrap: wrap;
-        column-gap: 3ch;
-        margin-top: var(--line);
-      }
-      .filters button {
-        display: inline-flex;
-        align-items: center;
-        font: inherit;
-        color: var(--ink);
-        background: none;
-        border: 0;
-        padding: 0.5rem 0;
-        margin: -0.5rem 0;
-        cursor: pointer;
-        text-decoration: line-through;
-        text-decoration-thickness: 1px;
-        text-decoration-color: transparent;
-        transition: color 0.12s ease, text-decoration-color 0.12s ease;
-        -webkit-tap-highlight-color: transparent;
-      }
-      .filters button[aria-pressed="false"] {
-        color: var(--muted);
-        text-decoration-color: currentColor;
-      }
-      @media (hover: hover) {
-        .filters button:hover {
-          color: var(--ink);
-        }
-      }
-      .filters button:active {
-        color: var(--muted);
-        transition: none;
-      }
-
       ul {
         list-style: none;
         display: flex;
         flex-direction: column;
         gap: var(--line);
-        margin-top: calc(var(--line) * 2);
-      }
-      li[hidden] {
-        display: none;
+        margin-top: var(--line);
       }
       li a {
         display: block;
@@ -151,9 +131,8 @@
         display: block;
         color: var(--muted);
       }
-      .empty {
-        margin-top: calc(var(--line) * 2);
-        color: var(--muted);
+      time {
+        white-space: nowrap;
       }
       ::selection {
         background: var(--ink);
@@ -170,59 +149,44 @@
       </defs>
     </svg>
     <main>
-      <header>
-        <h1><a href="/">Emmet Connolly</a> / Media</h1>
-        <div class="filters" role="group" aria-label="Show">
-          <button type="button" data-filter="talk" aria-pressed="true"><svg class="i" aria-hidden="true"><use href="#i-talk"/></svg>Talks</button>
-          <button type="button" data-filter="writing" aria-pressed="true"><svg class="i" aria-hidden="true"><use href="#i-writing"/></svg>Writing</button>
-          <button type="button" data-filter="podcast" aria-pressed="true"><svg class="i" aria-hidden="true"><use href="#i-podcast"/></svg>Podcasts</button>
-        </div>
-      </header>
+      <h1><a href="/">Emmet Connolly</a> / Media</h1>
 
-      <ul id="list">
-        <li data-type="writing"><a href="https://ideas.fin.ai/p/scroll-to-accept" target="_blank" rel="noopener"><span class="t">Scroll-to-Accept?</span><span class="m"><svg class="i" role="img" aria-label="Essay"><use href="#i-writing"/></svg>Fin Ideas, <time datetime="2026-01">January 2026</time></span></a></li>
-        <li data-type="writing"><a href="https://ideas.fin.ai/p/a-tale-of-two-agent-builders" target="_blank" rel="noopener"><span class="t">A Tale of Two Agent Builders</span><span class="m"><svg class="i" role="img" aria-label="Essay"><use href="#i-writing"/></svg>Fin Ideas, <time datetime="2025-10">October 2025</time></span></a></li>
-        <li data-type="writing"><a href="https://ideas.fin.ai/p/intercoms-3-point-framework-for-ai" target="_blank" rel="noopener"><span class="t">Intercom’s 3-Point Framework for AI-Driven Design</span><span class="m"><svg class="i" role="img" aria-label="Essay"><use href="#i-writing"/></svg>Fin Ideas, <time datetime="2025-10">October 2025</time></span></a></li>
-        <li data-type="talk"><a href="https://www.youtube.com/watch?v=_acdhjOLvBs" target="_blank" rel="noopener"><span class="t">When Designers Start Shipping Real Code</span><span class="m"><svg class="i" role="img" aria-label="Talk"><use href="#i-talk"/></svg>Hatch Conference, <time datetime="2025-09">September 2025</time></span></a></li>
-        <li data-type="podcast"><a href="https://www.youtube.com/watch?v=8ISy0PswHvE" target="_blank" rel="noopener"><span class="t">The State of AI in 2025</span><span class="m"><svg class="i" role="img" aria-label="Podcast"><use href="#i-podcast"/></svg>Intercom, <time datetime="2025-09">September 2025</time></span></a></li>
-        <li data-type="podcast"><a href="https://www.youtube.com/watch?v=rRljig2AS0g" target="_blank" rel="noopener"><span class="t">Transitioning into the Next Era of Design</span><span class="m"><svg class="i" role="img" aria-label="Podcast"><use href="#i-podcast"/></svg>Dive Club, <time datetime="2025-06">June 2025</time></span></a></li>
-        <li data-type="podcast"><a href="https://www.youtube.com/watch?v=I8hMPj3AD34" target="_blank" rel="noopener"><span class="t">Why Old UI Designs Won’t Work with AI</span><span class="m"><svg class="i" role="img" aria-label="Podcast"><use href="#i-podcast"/></svg>Off Script, <time datetime="2024-07">July 2024</time></span></a></li>
-        <li data-type="podcast"><a href="https://www.youtube.com/watch?v=rc1WGS8QNeI" target="_blank" rel="noopener"><span class="t">How to Design Standout Products in an AI World</span><span class="m"><svg class="i" role="img" aria-label="Podcast"><use href="#i-podcast"/></svg>Intercom, <time datetime="2024-02">February 2024</time></span></a></li>
-        <li data-type="podcast"><a href="https://www.youtube.com/watch?v=bLix8mAp5k8" target="_blank" rel="noopener"><span class="t">Riding the AI Wave in 2024</span><span class="m"><svg class="i" role="img" aria-label="Podcast"><use href="#i-podcast"/></svg>Intercom on Product, <time datetime="2024-01">January 2024</time></span></a></li>
-        <li data-type="talk"><a href="https://www.youtube.com/watch?v=qfXAhADMF2g" target="_blank" rel="noopener"><span class="t">From Visual Design to Vision Design</span><span class="m"><svg class="i" role="img" aria-label="Talk"><use href="#i-talk"/></svg>UXDX, <time datetime="2023-10">October 2023</time></span></a></li>
-        <li data-type="podcast"><a href="https://www.youtube.com/watch?v=KYBQzO2u1Xs" target="_blank" rel="noopener"><span class="t">The Emergence of Superintelligent AI</span><span class="m"><svg class="i" role="img" aria-label="Podcast"><use href="#i-podcast"/></svg>Intercom, <time datetime="2023-08">August 2023</time></span></a></li>
-        <li data-type="podcast"><a href="https://www.youtube.com/watch?v=G8W6YqDsjhg" target="_blank" rel="noopener"><span class="t">From Science Fiction to Reality: Exploring the Potential of LLMs</span><span class="m"><svg class="i" role="img" aria-label="Podcast"><use href="#i-podcast"/></svg>Intercom, <time datetime="2023-06">June 2023</time></span></a></li>
-        <li data-type="talk"><a href="https://www.youtube.com/watch?v=DYhoIYUlKl4" target="_blank" rel="noopener"><span class="t">The Tools We Use</span><span class="m"><svg class="i" role="img" aria-label="Talk"><use href="#i-talk"/></svg>UXDX, <time datetime="2019-10">October 2019</time></span></a></li>
-        <li data-type="talk"><a href="https://www.youtube.com/watch?v=pzC0o3uj-fM" target="_blank" rel="noopener"><span class="t">Designing in Interesting Times</span><span class="m"><svg class="i" role="img" aria-label="Talk"><use href="#i-talk"/></svg>Intercom World Tour, <time datetime="2018-08">August 2018</time></span></a></li>
-        <li data-type="talk"><a href="https://www.youtube.com/watch?v=m0JQtApZBJw" target="_blank" rel="noopener"><span class="t">Curiosity</span><span class="m"><svg class="i" role="img" aria-label="Talk"><use href="#i-talk"/></svg>CreativeMornings, <time datetime="2018-02">February 2018</time></span></a></li>
-        <li data-type="talk"><a href="https://www.youtube.com/watch?v=ouIdkokhwAg" target="_blank" rel="noopener"><span class="t">Design in the Age of Entanglement</span><span class="m"><svg class="i" role="img" aria-label="Talk"><use href="#i-talk"/></svg>Inside Intercom Amsterdam, <time datetime="2016-05">May 2016</time></span></a></li>
-        <li data-type="talk"><a href="https://www.youtube.com/watch?v=ea_KCJ2qy6s" target="_blank" rel="noopener"><span class="t">Designing for Wearables</span><span class="m"><svg class="i" role="img" aria-label="Talk"><use href="#i-talk"/></svg>Google I/O, <time datetime="2014-06">June 2014</time></span></a></li>
-      </ul>
-      <p class="empty" id="empty" hidden>Nothing selected.</p>
+      <div class="columns">
+        <section aria-labelledby="h-talk">
+          <h2 id="h-talk"><svg class="i" aria-hidden="true"><use href="#i-talk"/></svg>Talks</h2>
+          <ul>
+            <li><a href="https://www.youtube.com/watch?v=_acdhjOLvBs" target="_blank" rel="noopener"><span class="t">When Designers Start Shipping Real Code</span><span class="m">Hatch Conference, <time datetime="2025-09">Sep 2025</time></span></a></li>
+            <li><a href="https://www.youtube.com/watch?v=qfXAhADMF2g" target="_blank" rel="noopener"><span class="t">From Visual Design to Vision Design</span><span class="m">UXDX, <time datetime="2023-10">Oct 2023</time></span></a></li>
+            <li><a href="https://www.youtube.com/watch?v=DYhoIYUlKl4" target="_blank" rel="noopener"><span class="t">The Tools We Use</span><span class="m">UXDX, <time datetime="2019-10">Oct 2019</time></span></a></li>
+            <li><a href="https://www.youtube.com/watch?v=pzC0o3uj-fM" target="_blank" rel="noopener"><span class="t">Designing in Interesting Times</span><span class="m">Intercom World Tour, <time datetime="2018-08">Aug 2018</time></span></a></li>
+            <li><a href="https://www.youtube.com/watch?v=m0JQtApZBJw" target="_blank" rel="noopener"><span class="t">Curiosity</span><span class="m">CreativeMornings, <time datetime="2018-02">Feb 2018</time></span></a></li>
+            <li><a href="https://www.youtube.com/watch?v=ouIdkokhwAg" target="_blank" rel="noopener"><span class="t">Design in the Age of Entanglement</span><span class="m">Inside Intercom Amsterdam, <time datetime="2016-05">May 2016</time></span></a></li>
+            <li><a href="https://www.youtube.com/watch?v=ea_KCJ2qy6s" target="_blank" rel="noopener"><span class="t">Designing for Wearables</span><span class="m">Google I/O, <time datetime="2014-06">Jun 2014</time></span></a></li>
+          </ul>
+        </section>
+
+        <section aria-labelledby="h-podcast">
+          <h2 id="h-podcast"><svg class="i" aria-hidden="true"><use href="#i-podcast"/></svg>Podcasts</h2>
+          <ul>
+            <li><a href="https://www.youtube.com/watch?v=8ISy0PswHvE" target="_blank" rel="noopener"><span class="t">The State of AI in 2025</span><span class="m">Intercom, <time datetime="2025-09">Sep 2025</time></span></a></li>
+            <li><a href="https://www.youtube.com/watch?v=rRljig2AS0g" target="_blank" rel="noopener"><span class="t">Transitioning into the Next Era of Design</span><span class="m">Dive Club, <time datetime="2025-06">Jun 2025</time></span></a></li>
+            <li><a href="https://www.youtube.com/watch?v=I8hMPj3AD34" target="_blank" rel="noopener"><span class="t">Why Old UI Designs Won’t Work with AI</span><span class="m">Off Script, <time datetime="2024-07">Jul 2024</time></span></a></li>
+            <li><a href="https://www.youtube.com/watch?v=rc1WGS8QNeI" target="_blank" rel="noopener"><span class="t">How to Design Standout Products in an AI World</span><span class="m">Intercom, <time datetime="2024-02">Feb 2024</time></span></a></li>
+            <li><a href="https://www.youtube.com/watch?v=bLix8mAp5k8" target="_blank" rel="noopener"><span class="t">Riding the AI Wave in 2024</span><span class="m">Intercom on Product, <time datetime="2024-01">Jan 2024</time></span></a></li>
+            <li><a href="https://www.youtube.com/watch?v=KYBQzO2u1Xs" target="_blank" rel="noopener"><span class="t">The Emergence of Superintelligent AI</span><span class="m">Intercom, <time datetime="2023-08">Aug 2023</time></span></a></li>
+            <li><a href="https://www.youtube.com/watch?v=G8W6YqDsjhg" target="_blank" rel="noopener"><span class="t">From Science Fiction to Reality: Exploring the Potential of LLMs</span><span class="m">Intercom, <time datetime="2023-06">Jun 2023</time></span></a></li>
+          </ul>
+        </section>
+
+        <section aria-labelledby="h-writing">
+          <h2 id="h-writing"><svg class="i" aria-hidden="true"><use href="#i-writing"/></svg>Writing</h2>
+          <ul>
+            <li><a href="https://ideas.fin.ai/p/scroll-to-accept" target="_blank" rel="noopener"><span class="t">Scroll-to-Accept?</span><span class="m">Fin Ideas, <time datetime="2026-01">Jan 2026</time></span></a></li>
+            <li><a href="https://ideas.fin.ai/p/a-tale-of-two-agent-builders" target="_blank" rel="noopener"><span class="t">A Tale of Two Agent Builders</span><span class="m">Fin Ideas, <time datetime="2025-10">Oct 2025</time></span></a></li>
+            <li><a href="https://ideas.fin.ai/p/intercoms-3-point-framework-for-ai" target="_blank" rel="noopener"><span class="t">Intercom’s 3-Point Framework for AI-Driven Design</span><span class="m">Fin Ideas, <time datetime="2025-10">Oct 2025</time></span></a></li>
+          </ul>
+        </section>
+      </div>
     </main>
-    <script>
-      const items = [...document.querySelectorAll("#list li")];
-      const empty = document.getElementById("empty");
-      const calm = matchMedia("(prefers-reduced-motion: reduce)");
-      const on = { talk: true, writing: true, podcast: true };
-
-      document.querySelectorAll(".filters button").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          const type = btn.dataset.filter;
-          on[type] = !on[type];
-          btn.setAttribute("aria-pressed", on[type]);
-          let shown = 0;
-          items.forEach((li) => {
-            const show = on[li.dataset.type];
-            if (show && li.hidden && !calm.matches) {
-              li.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 180, easing: "ease-out" });
-            }
-            li.hidden = !show;
-            if (show) shown++;
-          });
-          empty.hidden = shown > 0;
-        });
-      });
-    </script>
   </body>
 </html>
